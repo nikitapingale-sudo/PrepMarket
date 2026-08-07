@@ -1,0 +1,11 @@
+{
+  "name": "prepmarket-dashboard",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PrepMarket Orders Intelligence Hub - live leadership dashboard fed by Google Sheets (EasyEcom exports)",
+  "scripts": {
+    "dev": "node dev/server.mjs",
+    "demo": "node dev/server.mjs --demo"
+  }
+}

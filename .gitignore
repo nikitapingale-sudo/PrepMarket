@@ -1,0 +1,23 @@
+# secrets - never commit these
+.env
+.env.local
+.env.*.local
+*credentials*.json
+*service-account*.json
+*.pem
+*.key
+
+# dependencies / build
+node_modules/
+.vercel/
+
+# editor & OS
+.claude/
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# logs
+*.log
+npm-debug.log*
