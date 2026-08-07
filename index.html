@@ -77,12 +77,16 @@
 
   /* ---------- ticker ---------- */
   .ticker-wrap{border-bottom:1px solid var(--line);overflow:hidden;background:rgba(120,140,190,.05)}
-  .ticker{display:flex;gap:44px;white-space:nowrap;padding:9px 0;width:max-content;animation:scroll 42s linear infinite}
+  .ticker{display:flex;gap:34px;white-space:nowrap;padding:9px 0;width:max-content;animation:scroll 60s linear infinite}
   .ticker-wrap:hover .ticker{animation-play-state:paused}
   @keyframes scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
-  .tick{font-size:12.5px;color:var(--mute)}
-  .tick b{color:var(--txt);font-weight:600}
-  .tick .amt{color:var(--green);font-weight:700}
+  .tick{font-size:12.5px;color:var(--mute);display:inline-flex;align-items:center;gap:7px}
+  .tick .k{font-size:10px;letter-spacing:.11em;text-transform:uppercase;font-weight:700;color:var(--mute)}
+  .tick .v{font-weight:700;color:var(--txt);font-variant-numeric:tabular-nums}
+  .tick .v.up{color:var(--green)}
+  .tick .v.down{color:var(--red)}
+  .tick .v.warn{color:var(--amber)}
+  .tick .v.info{color:var(--cyan)}
 
   /* ---------- filters ---------- */
   .filters{padding:11px 20px;position:sticky;top:0;z-index:30;
@@ -607,8 +611,7 @@ function applyData(d){
       (d.demoReason||'The live Google Sheet was not readable.'));
   }else{el('bannerSlot').innerHTML='';}
   buildDimFilters();
-  if(!F.from)setPreset('7d');else render();
-  buildTicker();
+  if(!F.from)setPreset('7d');else render();  /* render() also builds the ticker */
   el('loader').style.display='none';
   el('main').style.display='block';
   showTab(location.hash.replace('#',''));
@@ -633,16 +636,52 @@ function load(){
 }
 el('reload').onclick=load;
 
-/* ---------- live order ticker ---------- */
-function buildTicker(){
-  var recent=DATA.orders.slice().sort(function(a,b){return a.day<b.day?1:-1;}).slice(0,14);
-  if(!recent.length){el('tickerWrap').style.display='none';return;}
-  var items=recent.map(function(r){
-    return '<span class="tick">&#128230; <b>'+esc(r.ref)+'</b> &middot; '+esc(r.product)+
-      ' &middot; '+esc(r.city||r.state||'')+' &middot; <span class="amt">'+fmtINR(r.price)+'</span>'+
-      ' &middot; '+esc(r.pay)+'</span>';
-  }).join('');
-  el('ticker').innerHTML=items+items; /* duplicated for a seamless loop */
+/**
+ * Headline strip. Shows the numbers a leader wants at a glance rather than a
+ * list of individual orders, and it tracks the active filters because render()
+ * rebuilds it from the figures it has just computed.
+ */
+function buildTicker(s){
+  var items=[];
+  function add(icon,label,value,tone){
+    items.push('<span class="tick">'+icon+
+      '<span class="k">'+label+'</span>'+
+      '<span class="v'+(tone?' '+tone:'')+'">'+value+'</span></span>');
+  }
+  if(!s.nOrders&&!s.O.length){el('tickerWrap').style.display='none';return;}
+
+  add('\u{1F4E6}','Orders',fmtN(s.nOrders));
+  add('\u{1F4B0}','Revenue',fmtK(s.rev),'up');
+  if(s.pRev>0&&F.preset!=='all'){
+    var g=(s.rev-s.pRev)/s.pRev*100;
+    add(g>=0?'\u{1F4C8}':'\u{1F4C9}','vs prev',
+      (g>=0?'+':'−')+Math.abs(g).toFixed(1)+'%',g>=0?'up':'down');
+  }
+  add('\u{1F9FE}','AOV',fmtINR(s.aov));
+  add('\u{1F4DA}','Units',fmtN(s.units));
+  if(s.nOrders){
+    var codPc=s.cod/s.nOrders*100;
+    add('\u{1F4B3}','COD',codPc.toFixed(0)+'%',codPc>65?'warn':'');
+  }
+  add('⚠','Cancel rate',pct(s.cancRate),s.cancRate>5?'down':'up');
+  if(s.sRev.length){
+    var bi=s.sRev.indexOf(Math.max.apply(null,s.sRev));
+    add('\u{1F3C6}','Best day',fmtDay(s.days[bi])+' '+fmtK(s.sRev[bi]),'info');
+  }
+  var st=topName(s.O,function(r){return r.state;});
+  if(st!=='—')add('\u{1F4CD}','Top state',
+    esc(st)+' '+topShare(s.O,function(r){return r.state;}).toFixed(0)+'%','info');
+  var pr=topName(s.O,function(r){return r.product;});
+  if(pr!=='—')add('⭐','Top seller',
+    esc(pr.length>28?pr.slice(0,27)+'…':pr),'info');
+  var ch=topName(s.O,function(r){return r.channel;});
+  if(ch!=='—')add('\u{1F6D2}','Top channel',esc(ch),'info');
+  add('\u{1F69A}','Open orders',fmtN(s.pending),s.pending?'warn':'');
+  add('⏱','Aged 7d+',fmtN(s.over7),s.over7?'down':'up');
+  if(DATA.stock.length)add('\u{1F4E6}','Out of stock',fmtN(s.oos),s.oos?'down':'up');
+
+  var html=items.join('');
+  el('ticker').innerHTML=html+html; /* duplicated for a seamless loop */
   el('tickerWrap').style.display='block';
 }
 
@@ -948,6 +987,8 @@ function render(){
   el('expCount').textContent=fmtN(O.length);
 
   drawInsights(O,Cc,days,byDay,sRev,rev,pRev,nOrders,cancRate,over7,oos,avgDel);
+  buildTicker({O:O,days:days,sRev:sRev,rev:rev,pRev:pRev,nOrders:nOrders,units:units,
+    aov:aov,cod:cod,cancRate:cancRate,pending:pending,over7:over7.length,oos:oos});
   drawTrend(days,byDay,pFrom,pTo,span);
   drawDim('channelChart',O,function(r){return r.channel;},'doughnut','channel','fChannel');
   drawDim('payChart',O,function(r){return r.pay;},'doughnut','pay','fPay');
