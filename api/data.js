@@ -104,15 +104,32 @@ function pick(row, candidates) {
     Object.defineProperty(row, "__idx", { value: idx, enumerable: false });
   }
   const idx = row.__idx;
-  for (const c of candidates) {
-    const k = squash(c);
-    if (idx[k] !== undefined && idx[k] !== null && idx[k] !== "") return idx[k];
+
+  // Which of the named columns actually exist in this tab? Presence is decided
+  // by the HEADER, never by whether one particular row happens to have a value.
+  const present = candidates.map(squash).filter((k) => k in idx);
+
+  if (present.length) {
+    // First listed column that carries a value wins, so genuine synonyms still
+    // chain (e.g. Handover At -> Manifested At for dispatch).
+    for (const k of present) {
+      if (idx[k] !== null && idx[k] !== "") return idx[k];
+    }
+    // The column exists but is empty for this row. That is a real answer -
+    // "this order has no delivery date" - so stop here. Falling through to a
+    // fuzzy match once turned "Expected Delivery Date" into a reported
+    // delivery date for orders that had not been delivered.
+    return null;
   }
-  // substring fallback: "orderdate" matches a header like "orderdateandtime"
+
+  // Only when none of the named columns exist at all: allow a PREFIX match, so
+  // "Order Date" still finds a header like "Order Date And Time". Deliberately
+  // a prefix and not a substring - "Expected Delivery Date" must never satisfy
+  // a request for "Delivery Date".
   for (const c of candidates) {
     const k = squash(c);
     for (const have of Object.keys(idx)) {
-      if (have.includes(k) && idx[have] !== null && idx[have] !== "") return idx[have];
+      if (have.startsWith(k) && idx[have] !== null && idx[have] !== "") return idx[have];
     }
   }
   return null;
@@ -200,7 +217,10 @@ function normalizeOrders(raw) {
       state: strip(pick(o, ["Shipping State", "State", "shipping_state"])),
       channel: strip(pick(o, ["MP Name", "Marketplace", "Channel", "Sales Channel"])) || "Direct",
       mrp: num(pick(o, ["MRP"])),
-      delivered: toDayStr(pick(o, ["Delivered At", "Delivery Date", "delivered_at"])),
+      // Only ACTUAL delivery stamps. "Delivery Date" is deliberately excluded:
+      // it is ambiguous, and EasyEcom also ships "Expected Delivery Date" and
+      // "Delivery Appointment Date", which are promises, not facts.
+      delivered: toDayStr(pick(o, ["Delivered At", "delivered_at", "Delivered On"])),
       // EasyEcom has no "Shipped At"; handover/manifest is the real dispatch stamp
       shipped: toDayStr(
         pick(o, ["Handover At", "Manifested At", "Shipped At", "Dispatch Date", "shipped_at"])
