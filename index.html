@@ -110,6 +110,36 @@
   .switch{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--mute);cursor:pointer;
     border:1px solid var(--line);border-radius:9px;padding:7px 11px;background:rgba(120,140,190,.06);font-weight:600}
   .switch input{accent-color:var(--violet);cursor:pointer}
+  /* ---------- multi-select filter ---------- */
+  .ms{position:relative;display:inline-block}
+  .ms-btn{font-family:inherit;font-size:12.5px;color:var(--txt);border:1px solid var(--line);
+    border-radius:9px;background:var(--card-solid);padding:8px 25px 8px 10px;cursor:pointer;
+    white-space:nowrap;max-width:250px;overflow:hidden;text-overflow:ellipsis;text-align:left;position:relative}
+  .ms-btn:hover{border-color:var(--line2)}
+  .ms-btn.active{border-color:var(--violet);background:rgba(139,92,246,.14);font-weight:600}
+  .ms-btn::after{content:'\25BE';position:absolute;right:9px;top:50%;transform:translateY(-50%);
+    color:var(--mute);font-size:10px}
+  .ms-panel{display:none;position:absolute;top:calc(100% + 5px);left:0;z-index:70;
+    min-width:235px;max-width:310px;background:var(--card-solid);border:1px solid var(--line2);
+    border-radius:11px;box-shadow:0 14px 40px rgba(0,0,0,.42);padding:8px}
+  .ms.open .ms-panel{display:block}
+  .ms-search{width:100%;margin-bottom:6px;font-size:12px;padding:6px 8px}
+  .ms-list{max-height:236px;overflow-y:auto}
+  .ms-list label,.ms-all{display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:7px;
+    font-size:12.5px;cursor:pointer;user-select:none}
+  .ms-list label:hover,.ms-all:hover{background:rgba(120,140,190,.14)}
+  .ms-all{font-weight:700;border-bottom:1px solid var(--line);border-radius:7px 7px 0 0;
+    margin-bottom:4px;padding-bottom:7px}
+  .ms input[type=checkbox]{accent-color:var(--violet);cursor:pointer;width:14px;height:14px;flex:none}
+  .ms-txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ms-n{margin-left:auto;font-size:10.5px;color:var(--mute);font-variant-numeric:tabular-nums;flex:none}
+  .ms-none{color:var(--mute);font-size:12px;padding:8px 7px;text-align:center}
+  .ms-foot{display:flex;gap:6px;margin-top:7px;padding-top:7px;border-top:1px solid var(--line)}
+  .ms-foot button{flex:1;font-family:inherit;font-size:11.5px;font-weight:700;padding:6px;
+    border-radius:7px;cursor:pointer;border:1px solid var(--line);
+    background:rgba(120,140,190,.1);color:var(--txt)}
+  .ms-foot button:hover{border-color:var(--cyan);color:var(--cyan)}
+
   .fchips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
   .fchip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;
     background:rgba(139,92,246,.14);border:1px solid rgba(139,92,246,.35);color:var(--violet);
@@ -282,18 +312,18 @@
     <div class="chipset" id="presets">
       <button data-p="today">Today</button>
       <button data-p="yday">Yesterday</button>
-      <button data-p="7d" class="on">7D</button>
+      <button data-p="7d">7D</button>
       <button data-p="30d">30D</button>
       <button data-p="90d">90D</button>
       <button data-p="mtd">MTD</button>
-      <button data-p="all">All</button>
+      <button data-p="all" class="on">All</button>
     </div>
     <input type="date" id="from" aria-label="From date"><span style="color:var(--mute)">&rarr;</span>
     <input type="date" id="to" aria-label="To date">
-    <select id="fStatus" aria-label="Order status"></select>
-    <select id="fPay" aria-label="Payment mode"></select>
-    <select id="fState" aria-label="State"></select>
-    <select id="fCat" aria-label="Category"></select>
+    <div class="ms" id="msStatus"></div>
+    <div class="ms" id="msPay"></div>
+    <div class="ms" id="msState"></div>
+    <div class="ms" id="msCat"></div>
     <input type="search" id="fSearch" placeholder="Search order / SKU / product / city&hellip;" style="min-width:250px;flex:1" aria-label="Search">
     <label class="switch" title="Overlay the previous period of equal length on the trend chart">
       <input type="checkbox" id="fCompare"> Compare
@@ -469,8 +499,13 @@ var DATA=null, charts={}, sortState={}, pageState={}, autoTimer=null, cdTimer=nu
 var AUTO_MS=120000;                 /* 2 min auto refresh */
 var TABLES={};                      /* id -> {name, cols, rows} for Excel export */
 var EST={};                         /* which money figures the API had to derive */
-var F={preset:'7d',from:null,to:null,channel:'All',pay:'All',state:'All',cat:'All',
-       status:'All',q:'',compare:false,trend:'daily'};
+/* Dimension filters hold an ARRAY of selected values. An empty array means
+   "no filter", i.e. everything - so selecting all values and selecting none
+   are the same thing, and the dashboard can never be filtered down to nothing
+   by accident. */
+var F={preset:'all',from:null,to:null,channel:[],pay:[],state:[],cat:[],
+       status:[],q:'',compare:false,trend:'daily'};
+var MS={};   /* multi-select state, keyed by filter name */
 
 /* ---------- small helpers ---------- */
 function el(id){return document.getElementById(id);}
@@ -615,7 +650,7 @@ function applyData(d){
       (d.demoReason||'The live Google Sheet was not readable.'));
   }else{el('bannerSlot').innerHTML='';}
   buildDimFilters();
-  if(!F.from)setPreset('7d');else render();  /* render() also builds the ticker */
+  if(!F.from)setPreset('all');else render();  /* render() also builds the ticker */
   el('loader').style.display='none';
   el('main').style.display='block';
   showTab(location.hash.replace('#',''));
@@ -690,27 +725,135 @@ function buildTicker(s){
 }
 
 /* ---------- filters ---------- */
-/** Set a filter dropdown if it exists. Channel has no dropdown - it is only
-    reachable by clicking the Channel mix chart - so every write must tolerate
-    a missing element. */
-function setSel(id,v){var s=el(id);if(s)s.value=v;}
+/* ---------- multi-select dropdowns ---------- */
+
+/** Selecting every value is the same as selecting none: both mean "no filter". */
+function normSel(key){
+  var m=MS[key],s=F[key]||[];
+  if(m&&s.length&&s.length>=m.values.length)F[key]=[];
+}
+
+function buildMulti(hostId,key,label,values,counts){
+  var host=el(hostId);if(!host)return;
+  MS[key]={host:hostId,label:label,values:values,counts:counts,q:'',open:false};
+  /* drop selections that no longer exist in the refreshed data */
+  F[key]=(F[key]||[]).filter(function(v){return values.indexOf(v)>=0;});
+  renderMulti(key);
+}
+
+function renderMulti(key){
+  var m=MS[key];if(!m)return;
+  var host=el(m.host);if(!host)return;
+  var sel=F[key]||[], all=sel.length===0;
+  var btn=m.label+': '+(all?'All':sel.length===1?sel[0]:sel.length+' selected');
+  var q=(m.q||'').toLowerCase();
+  var shown=m.values.filter(function(v){return !q||String(v).toLowerCase().indexOf(q)>=0;});
+
+  host.className='ms'+(m.open?' open':'');
+  host.innerHTML=
+    '<button type="button" class="ms-btn'+(all?'':' active')+'" title="'+esc(btn)+'">'+esc(btn)+'</button>'+
+    '<div class="ms-panel">'+
+      (m.values.length>8
+        ? '<input type="search" class="ms-search" placeholder="Search '+esc(m.label)+'…" value="'+esc(m.q||'')+'">'
+        : '')+
+      '<label class="ms-all"><input type="checkbox"'+(all?' checked':'')+'>Select all'+
+        '<span class="ms-n">'+m.values.length+'</span></label>'+
+      '<div class="ms-list">'+
+        (shown.length?shown.map(function(v){
+          return '<label><input type="checkbox" value="'+esc(v)+'"'+(sel.indexOf(v)>=0?' checked':'')+'>'+
+            '<span class="ms-txt">'+esc(v)+'</span>'+
+            '<span class="ms-n">'+fmtN(m.counts[v]||0)+'</span></label>';
+        }).join(''):'<div class="ms-none">No match</div>')+
+      '</div>'+
+      '<div class="ms-foot"><button type="button" data-a="clear">Clear</button>'+
+      '<button type="button" data-a="close">Done</button></div>'+
+    '</div>';
+  wireMulti(key);
+}
+
+function wireMulti(key){
+  var m=MS[key],host=el(m.host);if(!host)return;
+
+  host.querySelector('.ms-btn').onclick=function(e){
+    e.stopPropagation();
+    var wasOpen=m.open;
+    closeAllMulti();
+    m.open=!wasOpen;
+    renderMulti(key);
+  };
+  host.querySelector('.ms-panel').onclick=function(e){e.stopPropagation();};
+
+  var search=host.querySelector('.ms-search');
+  if(search){
+    search.oninput=function(){
+      m.q=this.value;
+      renderMulti(key);
+      var s2=el(m.host).querySelector('.ms-search');
+      if(s2){s2.focus();s2.setSelectionRange(s2.value.length,s2.value.length);}
+    };
+  }
+
+  /* "Select all" always resolves to the unfiltered state - it can never leave
+     the dashboard showing nothing. */
+  host.querySelector('.ms-all input').onclick=function(e){
+    e.stopPropagation();
+    F[key]=[];
+    renderMulti(key);resetPages();render();
+  };
+
+  host.querySelectorAll('.ms-list input').forEach(function(cb){
+    cb.onclick=function(e){
+      e.stopPropagation();
+      var v=cb.value,s=(F[key]||[]).slice(),i=s.indexOf(v);
+      if(i>=0)s.splice(i,1);else s.push(v);
+      F[key]=s;normSel(key);
+      renderMulti(key);resetPages();render();
+    };
+  });
+
+  host.querySelectorAll('.ms-foot button').forEach(function(b){
+    b.onclick=function(e){
+      e.stopPropagation();
+      if(b.dataset.a==='clear'){F[key]=[];renderMulti(key);resetPages();render();}
+      else{m.open=false;renderMulti(key);}
+    };
+  });
+}
+
+function closeAllMulti(){
+  Object.keys(MS).forEach(function(k){
+    if(MS[k].open){MS[k].open=false;MS[k].q='';renderMulti(k);}
+  });
+}
+document.addEventListener('click',closeAllMulti);
+document.addEventListener('keydown',function(e){if(e.key==='Escape')closeAllMulti();});
+
+/** Chart drill-down: click a slice to isolate it, click again to clear. */
+function toggleOnly(key,label){
+  var s=F[key]||[];
+  F[key]=(s.length===1&&s[0]===label)?[]:[label];
+  if(MS[key])renderMulti(key);
+  resetPages();render();
+}
 
 function buildDimFilters(){
-  function fill(id,label,values){
-    var s=el(id);if(!s)return;
-    var cur=s.value;s.innerHTML='';
-    ['All'].concat(values).forEach(function(v){
-      var o=document.createElement('option');o.value=v;
-      o.textContent=v==='All'?label+': All':v;s.appendChild(o);});
-    if(values.indexOf(cur)>=0)s.value=cur;
+  function tally(f){
+    var m={};
+    DATA.orders.forEach(function(r){var v=f(r);if(v)m[v]=(m[v]||0)+1;});
+    return m;
   }
-  function vals(f){var s={};DATA.orders.forEach(function(r){var v=f(r);if(v)s[v]=1;});return Object.keys(s).sort();}
-  fill('fStatus','Order Status',vals(function(r){return r.status;}));
-  fill('fPay','Payment',vals(function(r){return r.pay;}));
-  fill('fState','State',vals(function(r){return r.state;}));
-  fill('fCat','Category',vals(function(r){return r.category;}));
-  function on(id,key){var s=el(id);if(s)s.onchange=function(){F[key]=this.value;resetPages();render();};}
-  on('fStatus','status');on('fPay','pay');on('fState','state');on('fCat','cat');
+  function mk(hostId,key,label,f){
+    var counts=tally(f);
+    buildMulti(hostId,key,label,Object.keys(counts).sort(),counts);
+  }
+  mk('msStatus','status','Order Status',function(r){return r.status;});
+  mk('msPay','pay','Payment',function(r){return r.pay;});
+  mk('msState','state','State',function(r){return r.state;});
+  mk('msCat','cat','Category',function(r){return r.category;});
+  /* Channel has no dropdown by design - it is reachable from the Channel mix
+     chart and shown as a removable chip. Registered so counts/labels exist. */
+  var cc=tally(function(r){return r.channel;});
+  MS.channel={host:null,label:'Channel',values:Object.keys(cc).sort(),counts:cc,q:'',open:false};
 }
 var searchTimer=null;
 el('fSearch').oninput=function(){
@@ -720,10 +863,10 @@ el('fSearch').oninput=function(){
 };
 el('fCompare').onchange=function(){F.compare=this.checked;render();};
 el('resetF').onclick=function(){
-  F.channel=F.pay=F.state=F.cat=F.status='All';F.q='';F.compare=false;
-  ['fStatus','fPay','fState','fCat'].forEach(function(id){setSel(id,'All');});
+  F.channel=[];F.pay=[];F.state=[];F.cat=[];F.status=[];F.q='';F.compare=false;
+  Object.keys(MS).forEach(function(k){if(MS[k].host)renderMulti(k);});
   el('fSearch').value='';el('fCompare').checked=false;
-  resetPages();setPreset('7d');
+  resetPages();setPreset('all');
 };
 document.querySelectorAll('#presets button').forEach(function(b){
   b.onclick=function(){resetPages();setPreset(b.dataset.p);};
@@ -786,12 +929,14 @@ function markPreset(){
 }
 function drawFilterChips(){
   var chips=[];
-  function add(label,val,key){
-    if(val&&val!=='All')chips.push('<span class="fchip">'+label+' <b>'+esc(val)+'</b>'+
+  function add(label,key){
+    var s=F[key]||[];if(!s.length)return;
+    var txt=s.length<=2?s.join(', '):s.length+' selected';
+    chips.push('<span class="fchip" title="'+esc(s.join(', '))+'">'+label+' <b>'+esc(txt)+'</b>'+
       '<button data-clear="'+key+'" title="Clear">&times;</button></span>');
   }
-  add('Order Status',F.status,'status');add('Payment',F.pay,'pay');add('State',F.state,'state');
-  add('Category',F.cat,'cat');add('Channel',F.channel,'channel');
+  add('Order Status','status');add('Payment','pay');add('State','state');
+  add('Category','cat');add('Channel','channel');
   if(F.q)chips.push('<span class="fchip">Search <b>'+esc(F.q)+'</b>'+
     '<button data-clear="q" title="Clear">&times;</button></span>');
   el('fchips').innerHTML=chips.length
@@ -802,11 +947,7 @@ function drawFilterChips(){
     b.onclick=function(){
       var k=b.dataset.clear;
       if(k==='q'){F.q='';el('fSearch').value='';}
-      else{
-        F[k]='All';
-        var map={pay:'fPay',state:'fState',cat:'fCat',status:'fStatus'};
-        if(map[k])setSel(map[k],'All');   /* channel has no dropdown to reset */
-      }
+      else{F[k]=[];if(MS[k])renderMulti(k);}
       resetPages();render();
     };
   });
@@ -819,12 +960,17 @@ function matchQ(r){
   return [r.ref,r.sku,r.product,r.city,r.state,r.channel,r.pay,r.status,r.courier]
     .some(function(v){return v&&String(v).toLowerCase().indexOf(F.q)>=0;});
 }
+/** Empty selection = no filter, so an untouched dropdown matches everything. */
+function inSel(key,v){
+  var s=F[key];
+  return !s||!s.length||s.indexOf(v)>=0;
+}
 function passDims(r){
-  return (F.channel==='All'||r.channel===F.channel)&&
-         (F.pay==='All'||r.pay===F.pay)&&
-         (F.state==='All'||r.state===F.state)&&
-         (F.cat==='All'||r.category===F.cat)&&
-         (F.status==='All'||r.status===F.status)&&
+  return inSel('channel',r.channel)&&
+         inSel('pay',r.pay)&&
+         inSel('state',r.state)&&
+         inSel('cat',r.category)&&
+         inSel('status',r.status)&&
          matchQ(r);
 }
 function ordersIn(from,to){
@@ -833,7 +979,7 @@ function ordersIn(from,to){
 function cancIn(from,to){
   return DATA.cancellations.filter(function(r){
     return r.day>=from&&r.day<=to&&
-      (F.channel==='All'||r.channel===F.channel)&&
+      inSel('channel',r.channel)&&
       (!F.q||[r.order,r.sku,r.product,r.reason,r.by].some(function(v){
         return v&&String(v).toLowerCase().indexOf(F.q)>=0;}));
   });
@@ -1020,11 +1166,11 @@ function render(){
   buildTicker({O:O,days:days,sRev:sRev,rev:rev,pRev:pRev,nOrders:nOrders,units:units,
     aov:aov,cod:cod,cancRate:cancRate,pending:pending,over7:over7.length,oos:oos});
   drawTrend(days,byDay,pFrom,pTo,span);
-  /* null selId: Channel has no dropdown, so clicking the chart filters via the
+  /* Channel has no dropdown by design; clicking the chart filters via the
      removable chip in the filter bar instead. */
-  drawDim('channelChart',O,function(r){return r.channel;},'doughnut','channel',null);
-  drawDim('payChart',O,function(r){return r.pay;},'doughnut','pay','fPay');
-  drawDim('catChart',O,function(r){return r.category;},'bar','cat','fCat');
+  drawDim('channelChart',O,function(r){return r.channel;},'doughnut','channel');
+  drawDim('payChart',O,function(r){return r.pay;},'doughnut','pay');
+  drawDim('catChart',O,function(r){return r.category;},'bar','cat');
   drawStatus(O);
   drawDow(O);drawHour(O);drawHeat(O);
   drawCancTrend(days,byDay);drawCancBy(Cc);drawCancReason(Cc);
@@ -1239,8 +1385,8 @@ function drawTrend(days,byDay,pFrom,pTo,span){
   });
 }
 
-/* generic dimension chart; clicking a slice/bar applies that dimension filter */
-function drawDim(canvasId,O,keyF,type,fKey,selId){
+/* generic dimension chart; clicking a slice/bar isolates that value */
+function drawDim(canvasId,O,keyF,type,fKey){
   var T=chartTheme();
   var m={};O.forEach(function(r){var k=keyF(r)||'Unknown';
     m[k]=m[k]||{n:{},rev:0};m[k].n[r.ref]=1;m[k].rev+=r.price;});
@@ -1256,10 +1402,7 @@ function drawDim(canvasId,O,keyF,type,fKey,selId){
   var common={maintainAspectRatio:false,animation:{duration:600},
     onClick:function(evt,items){
       if(!items.length)return;
-      var label=ks[items[0].index];
-      F[fKey]=(F[fKey]===label)?'All':label;
-      setSel(selId,F[fKey]);   /* no-op for Channel, which has no dropdown */
-      resetPages();render();
+      toggleOnly(fKey,ks[items[0].index]);
     },
     onHover:function(evt,items){evt.native.target.style.cursor=items.length?'pointer':'default';}};
 
@@ -1303,8 +1446,7 @@ function drawStatus(O){
     options:{maintainAspectRatio:false,indexAxis:'y',animation:{duration:600},
       onClick:function(evt,items){
         if(!items.length)return;
-        var label=ks[items[0].index];
-        F.status=(F.status===label)?'All':label;setSel('fStatus',F.status);resetPages();render();},
+        toggleOnly('status',ks[items[0].index]);},
       onHover:function(evt,items){evt.native.target.style.cursor=items.length?'pointer':'default';},
       scales:{x:{beginAtZero:true,ticks:{precision:0},grid:{color:T.grid}},y:{grid:{display:false}}},
       plugins:{legend:{display:false},tooltip:T.tt}}});
