@@ -290,11 +290,10 @@
     </div>
     <input type="date" id="from" aria-label="From date"><span style="color:var(--mute)">&rarr;</span>
     <input type="date" id="to" aria-label="To date">
-    <select id="fChannel" aria-label="Channel"></select>
+    <select id="fStatus" aria-label="Order status"></select>
     <select id="fPay" aria-label="Payment mode"></select>
     <select id="fState" aria-label="State"></select>
     <select id="fCat" aria-label="Category"></select>
-    <select id="fStatus" aria-label="Order status"></select>
     <input type="search" id="fSearch" placeholder="Search order / SKU / product / city&hellip;" style="min-width:250px;flex:1" aria-label="Search">
     <label class="switch" title="Overlay the previous period of equal length on the trend chart">
       <input type="checkbox" id="fCompare"> Compare
@@ -691,25 +690,27 @@ function buildTicker(s){
 }
 
 /* ---------- filters ---------- */
+/** Set a filter dropdown if it exists. Channel has no dropdown - it is only
+    reachable by clicking the Channel mix chart - so every write must tolerate
+    a missing element. */
+function setSel(id,v){var s=el(id);if(s)s.value=v;}
+
 function buildDimFilters(){
   function fill(id,label,values){
-    var s=el(id),cur=s.value;s.innerHTML='';
+    var s=el(id);if(!s)return;
+    var cur=s.value;s.innerHTML='';
     ['All'].concat(values).forEach(function(v){
       var o=document.createElement('option');o.value=v;
       o.textContent=v==='All'?label+': All':v;s.appendChild(o);});
     if(values.indexOf(cur)>=0)s.value=cur;
   }
   function vals(f){var s={};DATA.orders.forEach(function(r){var v=f(r);if(v)s[v]=1;});return Object.keys(s).sort();}
-  fill('fChannel','Channel',vals(function(r){return r.channel;}));
+  fill('fStatus','Order Status',vals(function(r){return r.status;}));
   fill('fPay','Payment',vals(function(r){return r.pay;}));
   fill('fState','State',vals(function(r){return r.state;}));
   fill('fCat','Category',vals(function(r){return r.category;}));
-  fill('fStatus','Status',vals(function(r){return r.status;}));
-  el('fChannel').onchange=function(){F.channel=this.value;render();};
-  el('fPay').onchange=function(){F.pay=this.value;render();};
-  el('fState').onchange=function(){F.state=this.value;render();};
-  el('fCat').onchange=function(){F.cat=this.value;render();};
-  el('fStatus').onchange=function(){F.status=this.value;render();};
+  function on(id,key){var s=el(id);if(s)s.onchange=function(){F[key]=this.value;resetPages();render();};}
+  on('fStatus','status');on('fPay','pay');on('fState','state');on('fCat','cat');
 }
 var searchTimer=null;
 el('fSearch').oninput=function(){
@@ -720,7 +721,7 @@ el('fSearch').oninput=function(){
 el('fCompare').onchange=function(){F.compare=this.checked;render();};
 el('resetF').onclick=function(){
   F.channel=F.pay=F.state=F.cat=F.status='All';F.q='';F.compare=false;
-  ['fChannel','fPay','fState','fCat','fStatus'].forEach(function(id){el(id).value='All';});
+  ['fStatus','fPay','fState','fCat'].forEach(function(id){setSel(id,'All');});
   el('fSearch').value='';el('fCompare').checked=false;
   resetPages();setPreset('7d');
 };
@@ -789,8 +790,8 @@ function drawFilterChips(){
     if(val&&val!=='All')chips.push('<span class="fchip">'+label+' <b>'+esc(val)+'</b>'+
       '<button data-clear="'+key+'" title="Clear">&times;</button></span>');
   }
-  add('Channel',F.channel,'channel');add('Payment',F.pay,'pay');add('State',F.state,'state');
-  add('Category',F.cat,'cat');add('Status',F.status,'status');
+  add('Order Status',F.status,'status');add('Payment',F.pay,'pay');add('State',F.state,'state');
+  add('Category',F.cat,'cat');add('Channel',F.channel,'channel');
   if(F.q)chips.push('<span class="fchip">Search <b>'+esc(F.q)+'</b>'+
     '<button data-clear="q" title="Clear">&times;</button></span>');
   el('fchips').innerHTML=chips.length
@@ -803,8 +804,8 @@ function drawFilterChips(){
       if(k==='q'){F.q='';el('fSearch').value='';}
       else{
         F[k]='All';
-        var map={channel:'fChannel',pay:'fPay',state:'fState',cat:'fCat',status:'fStatus'};
-        el(map[k]).value='All';
+        var map={pay:'fPay',state:'fState',cat:'fCat',status:'fStatus'};
+        if(map[k])setSel(map[k],'All');   /* channel has no dropdown to reset */
       }
       resetPages();render();
     };
@@ -1019,7 +1020,9 @@ function render(){
   buildTicker({O:O,days:days,sRev:sRev,rev:rev,pRev:pRev,nOrders:nOrders,units:units,
     aov:aov,cod:cod,cancRate:cancRate,pending:pending,over7:over7.length,oos:oos});
   drawTrend(days,byDay,pFrom,pTo,span);
-  drawDim('channelChart',O,function(r){return r.channel;},'doughnut','channel','fChannel');
+  /* null selId: Channel has no dropdown, so clicking the chart filters via the
+     removable chip in the filter bar instead. */
+  drawDim('channelChart',O,function(r){return r.channel;},'doughnut','channel',null);
   drawDim('payChart',O,function(r){return r.pay;},'doughnut','pay','fPay');
   drawDim('catChart',O,function(r){return r.category;},'bar','cat','fCat');
   drawStatus(O);
@@ -1255,7 +1258,7 @@ function drawDim(canvasId,O,keyF,type,fKey,selId){
       if(!items.length)return;
       var label=ks[items[0].index];
       F[fKey]=(F[fKey]===label)?'All':label;
-      el(selId).value=F[fKey];
+      setSel(selId,F[fKey]);   /* no-op for Channel, which has no dropdown */
       resetPages();render();
     },
     onHover:function(evt,items){evt.native.target.style.cursor=items.length?'pointer':'default';}};
@@ -1301,7 +1304,7 @@ function drawStatus(O){
       onClick:function(evt,items){
         if(!items.length)return;
         var label=ks[items[0].index];
-        F.status=(F.status===label)?'All':label;el('fStatus').value=F.status;resetPages();render();},
+        F.status=(F.status===label)?'All':label;setSel('fStatus',F.status);resetPages();render();},
       onHover:function(evt,items){evt.native.target.style.cursor=items.length?'pointer':'default';},
       scales:{x:{beginAtZero:true,ticks:{precision:0},grid:{color:T.grid}},y:{grid:{display:false}}},
       plugins:{legend:{display:false},tooltip:T.tt}}});
