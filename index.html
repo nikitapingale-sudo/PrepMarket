@@ -207,6 +207,10 @@
   tbody tr{transition:background .15s}
   tbody tr:hover td{background:rgba(34,211,238,.06)}
   th.r,td.r{text-align:right}
+  tfoot td{border-top:2px solid var(--line2);font-weight:800;
+    background:rgba(120,140,190,.07);border-bottom:none}
+  tbody tr.clickable{cursor:pointer}
+  tbody tr.clickable:hover td{background:rgba(139,92,246,.12)}
   .sharebar{position:relative;display:block;height:4px;border-radius:3px;background:rgba(120,140,190,.15);margin-top:6px;overflow:hidden}
   .sharebar i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;
     background:linear-gradient(90deg,var(--violet),var(--cyan));transition:width .7s cubic-bezier(.22,.9,.35,1)}
@@ -371,8 +375,8 @@
     </div>
 
     <div class="grid2">
-      <div class="card"><h2>Channel mix <span class="tag">click to filter</span></h2><div class="chartbox sm"><canvas id="channelChart"></canvas></div></div>
-      <div class="card"><h2>Payment split <span class="tag">click to filter</span></h2><div class="chartbox sm"><canvas id="payChart"></canvas></div></div>
+      <div class="card"><h2>Channel mix <span class="tag">click a row to filter</span><span class="spacer"></span><button class="xls" data-xls="tblChannelMix">&#8681; EXCEL</button></h2><div class="overflow" id="tblChannelMix"></div></div>
+      <div class="card"><h2>Payment split <span class="tag">click a row to filter</span><span class="spacer"></span><button class="xls" data-xls="tblPayMix">&#8681; EXCEL</button></h2><div class="overflow" id="tblPayMix"></div></div>
     </div>
 
     <div class="grid2">
@@ -414,7 +418,7 @@
 
     <div class="grid2">
       <div class="card"><h2>Cancellations by day</h2><div class="chartbox sm"><canvas id="cancTrendChart"></canvas></div></div>
-      <div class="card"><h2>Cancelled by</h2><div class="chartbox sm"><canvas id="cancByChart"></canvas></div></div>
+      <div class="card"><h2>Cancelled by<span class="spacer"></span><button class="xls" data-xls="tblCancBy">&#8681; EXCEL</button></h2><div class="overflow" id="tblCancBy"></div></div>
     </div>
 
     <div class="card">
@@ -424,7 +428,7 @@
 
     <div class="grid2">
       <div class="card"><h2>Pending order aging <span id="agingFlag"></span></h2><div class="chartbox sm"><canvas id="agingChart"></canvas></div></div>
-      <div class="card"><h2>Courier split</h2><div class="chartbox sm"><canvas id="courierChart"></canvas></div></div>
+      <div class="card"><h2>Courier split<span class="spacer"></span><button class="xls" data-xls="tblCourier">&#8681; EXCEL</button></h2><div class="overflow" id="tblCourier"></div></div>
     </div>
 
     <div class="card">
@@ -445,7 +449,7 @@
 
     <div class="grid2">
       <div class="card"><h2>Lowest stock SKUs</h2><div class="chartbox sm"><canvas id="stockChart"></canvas></div></div>
-      <div class="card"><h2>Stock units by category</h2><div class="chartbox sm"><canvas id="stockCatChart"></canvas></div></div>
+      <div class="card"><h2>Stock units by category<span class="spacer"></span><button class="xls" data-xls="tblStockCat">&#8681; EXCEL</button></h2><div class="overflow" id="tblStockCat"></div></div>
     </div>
 
     <div class="card">
@@ -1166,16 +1170,15 @@ function render(){
   buildTicker({O:O,days:days,sRev:sRev,rev:rev,pRev:pRev,nOrders:nOrders,units:units,
     aov:aov,cod:cod,cancRate:cancRate,pending:pending,over7:over7.length,oos:oos});
   drawTrend(days,byDay,pFrom,pTo,span);
-  /* Channel has no dropdown by design; clicking the chart filters via the
-     removable chip in the filter bar instead. */
-  drawDim('channelChart',O,function(r){return r.channel;},'doughnut','channel');
-  drawDim('payChart',O,function(r){return r.pay;},'doughnut','pay');
   drawDim('catChart',O,function(r){return r.category;},'bar','cat');
   drawStatus(O);
   drawDow(O);drawHour(O);drawHeat(O);
-  drawCancTrend(days,byDay);drawCancBy(Cc);drawCancReason(Cc);
-  drawAgingChart(agingRows);drawCourier(O);
+  drawCancTrend(days,byDay);drawCancReason(Cc);
+  drawAgingChart(agingRows);
   drawStockCharts();
+
+  /* mix tables (these replaced the doughnut charts) */
+  tblChannelMix(O);tblPayMix(O);tblCancBy(Cc);tblCourier(O);tblStockCat();
 
   tblSku(O);tblState(O);tblCity(O);tblChannel(O,Cc);tblCat(O);
   tblCanc(Cc);tblAging(agingRows);
@@ -1385,49 +1388,33 @@ function drawTrend(days,byDay,pFrom,pTo,span){
   });
 }
 
-/* generic dimension chart; clicking a slice/bar isolates that value */
+/* Horizontal revenue bars by dimension; clicking a bar isolates that value.
+   Pie and doughnut variants were replaced by mix tables, which show the actual
+   orders/units/revenue rather than only a slice angle. */
 function drawDim(canvasId,O,keyF,type,fKey){
   var T=chartTheme();
   var m={};O.forEach(function(r){var k=keyF(r)||'Unknown';
     m[k]=m[k]||{n:{},rev:0};m[k].n[r.ref]=1;m[k].rev+=r.price;});
   var ks=Object.keys(m).sort(function(a,b){return m[b].rev-m[a].rev;}).slice(0,10);
   var vals=ks.map(function(k){return Math.round(m[k].rev);});
-  var totalRev=vals.reduce(function(a,b){return a+b;},0);
   var cols=palette();
   killChart(canvasId);
-  var node=el(canvasId);
   if(!ks.length){chartMsg(canvasId,'&#128202;','Nothing to show for this filter.');return;}
   chartMsg(canvasId,null,null);
 
-  var common={maintainAspectRatio:false,animation:{duration:600},
-    onClick:function(evt,items){
-      if(!items.length)return;
-      toggleOnly(fKey,ks[items[0].index]);
-    },
-    onHover:function(evt,items){evt.native.target.style.cursor=items.length?'pointer':'default';}};
-
-  if(type==='doughnut'){
-    charts[canvasId]=new Chart(node,{type:'doughnut',
-      data:{labels:ks,datasets:[{data:vals,backgroundColor:cols,borderWidth:3,
-        borderColor:cssVar('--bg'),hoverOffset:10}]},
-      options:Object.assign({},common,{cutout:'66%',
-        plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8,padding:11}},
-          tooltip:Object.assign({},T.tt,{callbacks:{label:function(c){
-            return ' '+c.label+': '+fmtINR(c.parsed)+' ('+
-              (totalRev?(c.parsed/totalRev*100).toFixed(1):0)+'%) · '+
-              Object.keys(m[c.label].n).length+' orders';}}})}})});
-  }else{
-    charts[canvasId]=new Chart(node,{type:'bar',
-      data:{labels:ks,datasets:[{label:'Revenue',data:vals,
-        backgroundColor:ks.map(function(k,i){return hexA(cols[i%cols.length],.85);}),
-        hoverBackgroundColor:cols,borderRadius:6,maxBarThickness:26}]},
-      options:Object.assign({},common,{indexAxis:'y',
-        scales:{x:{beginAtZero:true,grid:{color:T.grid},ticks:{callback:function(v){return fmtK(v);}}},
-          y:{grid:{display:false}}},
-        plugins:{legend:{display:false},
-          tooltip:Object.assign({},T.tt,{callbacks:{label:function(c){
-            return ' '+fmtINR(c.parsed.x)+' · '+Object.keys(m[c.label].n).length+' orders';}}})}})});
-  }
+  charts[canvasId]=new Chart(el(canvasId),{type:'bar',
+    data:{labels:ks,datasets:[{label:'Revenue',data:vals,
+      backgroundColor:ks.map(function(k,i){return hexA(cols[i%cols.length],.85);}),
+      hoverBackgroundColor:cols,borderRadius:6,maxBarThickness:26}]},
+    options:{maintainAspectRatio:false,indexAxis:'y',animation:{duration:600},
+      onClick:function(evt,items){
+        if(items.length)toggleOnly(fKey,ks[items[0].index]);},
+      onHover:function(evt,items){evt.native.target.style.cursor=items.length?'pointer':'default';},
+      scales:{x:{beginAtZero:true,grid:{color:T.grid},ticks:{callback:function(v){return fmtK(v);}}},
+        y:{grid:{display:false}}},
+      plugins:{legend:{display:false},
+        tooltip:Object.assign({},T.tt,{callbacks:{label:function(c){
+          return ' '+fmtINR(c.parsed.x)+' · '+Object.keys(m[c.label].n).length+' orders';}}})}}});
 }
 
 function drawStatus(O){
@@ -1528,23 +1515,6 @@ function drawCancTrend(days,byDay){
           return ' '+c.dataset.label+': '+(c.datasetIndex?fmtINR(c.parsed.y):c.parsed.y);}}})}}});
 }
 
-function drawCancBy(Cc){
-  var T=chartTheme();
-  var m={};Cc.forEach(function(r){m[r.by]=(m[r.by]||0)+1;});
-  var ks=Object.keys(m);
-  killChart('cancByChart');
-  if(!ks.length){chartMsg('cancByChart','&#9989;','No cancellations in this period.');return;}
-  chartMsg('cancByChart',null,null);
-  var total=Cc.length;
-  charts.cancByChart=new Chart(el('cancByChart'),{type:'doughnut',
-    data:{labels:ks,datasets:[{data:ks.map(function(k){return m[k];}),
-      backgroundColor:palette(),borderWidth:3,borderColor:cssVar('--bg'),hoverOffset:10}]},
-    options:{maintainAspectRatio:false,cutout:'66%',animation:{duration:600},
-      plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8}},
-        tooltip:Object.assign({},T.tt,{callbacks:{label:function(c){
-          return ' '+c.label+': '+c.parsed+' ('+(c.parsed/total*100).toFixed(0)+'%)';}}})}}});
-}
-
 function drawCancReason(Cc){
   var T=chartTheme();
   var m={};Cc.forEach(function(r){m[r.reason]=(m[r.reason]||0)+1;});
@@ -1589,20 +1559,6 @@ function drawAgingChart(rows){
       plugins:{legend:{display:false},tooltip:T.tt}}});
 }
 
-function drawCourier(O){
-  var T=chartTheme();
-  var m={};O.forEach(function(r){if(!r.courier)return;m[r.courier]=m[r.courier]||{};m[r.courier][r.ref]=1;});
-  var ks=Object.keys(m).sort(function(a,b){return Object.keys(m[b]).length-Object.keys(m[a]).length;});
-  killChart('courierChart');
-  if(!ks.length){chartMsg('courierChart','&#128666;','No courier column in Orders_Raw yet.');return;}
-  chartMsg('courierChart',null,null);
-  charts.courierChart=new Chart(el('courierChart'),{type:'doughnut',
-    data:{labels:ks,datasets:[{data:ks.map(function(k){return Object.keys(m[k]).length;}),
-      backgroundColor:palette(),borderWidth:3,borderColor:cssVar('--bg'),hoverOffset:10}]},
-    options:{maintainAspectRatio:false,cutout:'66%',animation:{duration:600},
-      plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8}},tooltip:T.tt}}});
-}
-
 function drawStockCharts(){
   var T=chartTheme();
   var low=DATA.stock.slice().sort(function(a,b){return a.available-b.available;}).slice(0,12);
@@ -1618,15 +1574,7 @@ function drawStockCharts(){
       scales:{x:{beginAtZero:true,ticks:{precision:0},grid:{color:T.grid}},y:{grid:{display:false}}},
       plugins:{legend:{display:false},tooltip:T.tt}}});
 
-  var m={};DATA.stock.forEach(function(r){m[r.category]=(m[r.category]||0)+r.available;});
-  var ks=Object.keys(m).sort(function(a,b){return m[b]-m[a];});
-  killChart('stockCatChart');
-  chartMsg('stockCatChart',ks.length?null:'&#128230;',ks.length?null:'No stock report uploaded yet.');
-  if(ks.length)charts.stockCatChart=new Chart(el('stockCatChart'),{type:'doughnut',
-    data:{labels:ks,datasets:[{data:ks.map(function(k){return m[k];}),
-      backgroundColor:palette(),borderWidth:3,borderColor:cssVar('--bg'),hoverOffset:10}]},
-    options:{maintainAspectRatio:false,cutout:'66%',animation:{duration:600},
-      plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8}},tooltip:T.tt}}});
+  /* stock-by-category is now a table (tblStockCat), not a doughnut */
 }
 
 /* ============================ TABLES ============================ */
@@ -1667,19 +1615,37 @@ function renderTable(elmId,cols,data,emptyMsg,opts){
   var h='<table><thead><tr>'+cols.map(function(c){
     var arr=st&&st.k===c.k?(st.dir>0?' <span class="arr">&#9650;</span>':' <span class="arr">&#9660;</span>'):'';
     return '<th class="'+(c.r?'r':'')+'" data-k="'+c.k+'">'+c.label+arr+'</th>';}).join('')+'</tr></thead><tbody>';
-  view.forEach(function(r){
-    h+='<tr>'+cols.map(function(c){
+  view.forEach(function(r,ri){
+    h+='<tr'+(opts.onRow?' class="clickable" data-ri="'+ri+'"':'')+'>'+cols.map(function(c){
       var v=c.fmt?c.fmt(r[c.k],r):esc(r[c.k]==null?'':r[c.k]);
       if(c.bar)v+='<span class="sharebar"><i style="width:'+
         Math.round((r[c.k]||0)/maxBar[c.k]*100)+'%"></i></span>';
       return '<td class="num '+(c.r?'r':'')+'">'+v+'</td>';}).join('')+'</tr>';});
-  host.innerHTML=h+'</tbody></table>';
+  h+='</tbody>';
+
+  /* Totals row - on a mix table it confirms the parts add up to the whole. */
+  if(opts.totals&&rows.length){
+    h+='<tfoot><tr>'+cols.map(function(c,i){
+      if(i===0)return '<td class="num">Total</td>';
+      if(c.pct)return '<td class="num r">100.0%</td>';
+      var numeric=rows.some(function(r){return typeof r[c.k]==='number';});
+      if(!numeric)return '<td></td>';
+      var s=rows.reduce(function(a,r){return a+(r[c.k]||0);},0);
+      return '<td class="num r">'+(c.tot?c.tot(s):fmtN(s))+'</td>';
+    }).join('')+'</tr></tfoot>';
+  }
+  host.innerHTML=h+'</table>';
 
   host.querySelectorAll('th').forEach(function(th){
     th.onclick=function(){
       var k=th.dataset.k,cur=sortState[elmId];
       sortState[elmId]={k:k,dir:cur&&cur.k===k?-cur.dir:-1};
       renderTable(elmId,cols,data,emptyMsg,opts);};});
+
+  if(opts.onRow){
+    host.querySelectorAll('tbody tr.clickable').forEach(function(tr){
+      tr.onclick=function(){opts.onRow(view[+tr.dataset.ri]);};});
+  }
 
   if(size&&opts.pager){
     var pages=Math.ceil(total/size);
@@ -1712,8 +1678,71 @@ function groupBy(rows,keyF,labelF){
       rev:x.rev,aov:orders?x.rev/orders:0,share:tot?x.rev/tot*100:0};})
     .sort(function(a,b){return b.rev-a.rev;});
 }
-var C_MONEY={r:1,fmt:function(v){return fmtINR(v);},xl:function(v){return Math.round(v||0);}};
-var C_SHARE={r:1,fmt:function(v){return v.toFixed(1)+'%';},xl:function(v){return +(v||0).toFixed(2);}};
+var C_MONEY={r:1,fmt:function(v){return fmtINR(v);},xl:function(v){return Math.round(v||0);},
+  tot:function(v){return fmtINR(v);}};
+var C_SHARE={r:1,pct:1,fmt:function(v){return v.toFixed(1)+'%';},xl:function(v){return +(v||0).toFixed(2);}};
+
+/**
+ * Mix tables. These replace the doughnut charts: same breakdown, but with the
+ * actual orders, units and revenue on screen instead of only a slice angle,
+ * plus sorting and Excel export for free.
+ */
+function mixTable(elmId,name,label,O,keyF,filterKey){
+  renderTable(elmId,
+    [{k:'key',label:label},
+     {k:'orders',label:'Orders',r:1},
+     {k:'units',label:'Units',r:1},
+     Object.assign({k:'rev',label:'Revenue',bar:1},C_MONEY),
+     Object.assign({k:'share',label:'% Revenue'},C_SHARE)],
+    groupBy(O,keyF),
+    'No orders in this range.',
+    {name:name,totals:1,
+     onRow:filterKey?function(row){toggleOnly(filterKey,row.key);}:null});
+}
+
+/** Simple count + share table, for dimensions with no revenue attached. */
+function countTable(elmId,name,label,rows,countLabel){
+  var total=rows.reduce(function(a,r){return a+r.count;},0);
+  rows.forEach(function(r){r.share=total?r.count/total*100:0;});
+  renderTable(elmId,
+    [{k:'key',label:label},
+     {k:'count',label:countLabel||'Count',r:1,bar:1},
+     Object.assign({k:'share',label:'% of Total'},C_SHARE)],
+    rows.sort(function(a,b){return b.count-a.count;}),
+    'Nothing to show for this filter.',{name:name,totals:1});
+}
+
+function tblChannelMix(O){mixTable('tblChannelMix','Channel Mix','Channel',O,function(r){return r.channel;},'channel');}
+function tblPayMix(O){mixTable('tblPayMix','Payment Split','Payment',O,function(r){return r.pay;},'pay');}
+
+function tblCancBy(Cc){
+  var m={};Cc.forEach(function(r){m[r.by]=(m[r.by]||0)+1;});
+  countTable('tblCancBy','Cancelled By','Cancelled By',
+    Object.keys(m).map(function(k){return {key:k,count:m[k]};}),'Cancellations');
+}
+function tblCourier(O){
+  var m={};O.forEach(function(r){if(!r.courier)return;m[r.courier]=m[r.courier]||{};m[r.courier][r.ref]=1;});
+  countTable('tblCourier','Courier Split','Courier',
+    Object.keys(m).map(function(k){return {key:k,count:Object.keys(m[k]).length};}),'Orders');
+}
+function tblStockCat(){
+  var m={};
+  DATA.stock.forEach(function(r){
+    var k=r.category||'Uncategorized';
+    m[k]=m[k]||{skus:0,units:0,value:0};
+    m[k].skus++;m[k].units+=r.available;m[k].value+=r.available*(r.mrp||0);});
+  var rows=Object.keys(m).map(function(k){return {key:k,skus:m[k].skus,units:m[k].units,value:m[k].value};});
+  var tot=rows.reduce(function(a,r){return a+r.units;},0);
+  rows.forEach(function(r){r.share=tot?r.units/tot*100:0;});
+  renderTable('tblStockCat',
+    [{k:'key',label:'Category'},
+     {k:'skus',label:'SKUs',r:1},
+     {k:'units',label:'Units',r:1,bar:1},
+     Object.assign({k:'value',label:'Stock Value'},C_MONEY),
+     Object.assign({k:'share',label:'% Units'},C_SHARE)],
+    rows.sort(function(a,b){return b.units-a.units;}),
+    'No stock report uploaded yet.',{name:'Stock By Category',totals:1});
+}
 
 function tblSku(O){
   renderTable('tblSku',
