@@ -34,6 +34,7 @@ const TABS = {
   cancellations: "Cancellations_Raw",
   aging: "Aging_Raw",
   stock: "Stock_Raw",
+  returns: "Pending Returns report",
 };
 
 /* ---------- gviz fetch: returns [{header: value, ...}, ...] ---------- */
@@ -279,6 +280,47 @@ function normalizeAging(raw) {
   return out;
 }
 
+/** "Pending Returns report" - reverse logistics still in flight. */
+function normalizeReturns(raw) {
+  const seen = new Set();
+  const out = [];
+  for (const o of raw) {
+    const order = strip(pick(o, ["Order_Number", "Order Number", "Order No."]));
+    const itemId = strip(pick(o, ["Order_Item_ID", "Order Item ID"]));
+    const sku = strip(pick(o, ["sku", "SKU"]));
+    if (!order && !itemId) continue;
+    const key = itemId || order + "|" + sku;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      order,
+      itemId,
+      // the return is dated by when it was raised, so it lands in the right
+      // reporting period regardless of when the original order was placed
+      day: toDayStr(pick(o, ["Return_Initiated_Date"])),
+      orderDay: toDayStr(pick(o, ["Order_Date"])),
+      deliveredDay: toDayStr(pick(o, ["MP_Delivered_Date"])),
+      gateDay: toDayStr(pick(o, ["Gate_Entry_Shipment_Received_Date"])),
+      sku,
+      product: strip(pick(o, ["Product_Name", "Product Name"])),
+      qty: num(pick(o, ["Return_Quantity"])) || 1,
+      status: strip(pick(o, ["Return_Status"])) || "Unknown",
+      type: strip(pick(o, ["Return_Type"])) || "Unknown",
+      reason: strip(pick(o, ["Channel_return_reason"])) || "Not given",
+      carrier: strip(pick(o, ["Reverse_Carrier_Name", "Reverse_Carrier_Aggregator"])),
+      marketplace: strip(pick(o, ["Marketplace", "Party"])) || "Direct",
+      mpStatus: strip(pick(o, ["MP_Status"])),
+      awb: strip(pick(o, ["Reverse_AWB_Number"])),
+      warehouse: strip(pick(o, ["Returned_to_warehouse"])),
+      invoice: strip(pick(o, ["Invoice_Number"])),
+      comments: strip(pick(o, ["Comments"])),
+      value: num(pick(o, ["Packet_Amount"])),
+    });
+  }
+  return out;
+}
+
 /**
  * Cancellations_Raw and Aging_Raw carry no money column, and Stock_Raw carries
  * no MRP, so those figures would all render as zero. Orders_Raw does have both
@@ -286,7 +328,7 @@ function normalizeAging(raw) {
  * and flag the filled rows - the UI labels them as estimates rather than
  * passing derived numbers off as reported ones.
  */
-function fillFromOrders(orders, cancellations, aging, stock) {
+function fillFromOrders(orders, cancellations, aging, stock, returns) {
   const bySku = {};
   for (const o of orders) {
     if (!o.sku) continue;
@@ -300,7 +342,13 @@ function fillFromOrders(orders, cancellations, aging, stock) {
     return p.n ? p.sum / p.n : p.mrp;
   };
 
-  let cancEstimated = false, stockEstimated = false, agingEstimated = false;
+  let cancEstimated = false, stockEstimated = false, agingEstimated = false,
+      returnsEstimated = false;
+  for (const t of returns || []) {
+    if (t.value > 0) continue;
+    const v = unitPrice(t.sku) * (t.qty || 1);
+    if (v > 0) { t.value = Math.round(v); t.valueEstimated = true; returnsEstimated = true; }
+  }
   for (const c of cancellations) {
     if (c.value > 0) continue;
     const v = unitPrice(c.sku) * (c.qty || 1);
@@ -316,7 +364,7 @@ function fillFromOrders(orders, cancellations, aging, stock) {
     const v = unitPrice(s.sku);
     if (v > 0) { s.mrp = Math.round(v); s.mrpEstimated = true; stockEstimated = true; }
   }
-  return { cancEstimated, stockEstimated, agingEstimated };
+  return { cancEstimated, stockEstimated, agingEstimated, returnsEstimated };
 }
 
 function normalizeStock(raw) {
@@ -344,11 +392,13 @@ function normalizeStock(raw) {
 
 /* ---------- handler ---------- */
 export async function buildPayload() {
-  const [ordersRaw, cancRaw, agingRaw, stockRaw] = await Promise.all([
+  const [ordersRaw, cancRaw, agingRaw, stockRaw, returnsRaw] = await Promise.all([
     fetchTab(TABS.orders),
     fetchTab(TABS.cancellations),
     fetchTab(TABS.aging),
     fetchTab(TABS.stock),
+    // a missing returns tab must not take the whole dashboard down
+    fetchTab(TABS.returns).catch(() => []),
   ]);
 
   const now = new Date();
@@ -362,9 +412,10 @@ export async function buildPayload() {
   const cancellations = normalizeCanc(cancRaw);
   const aging = normalizeAging(agingRaw);
   const stock = normalizeStock(stockRaw);
-  const estimated = fillFromOrders(orders, cancellations, aging, stock);
+  const returns = normalizeReturns(returnsRaw);
+  const estimated = fillFromOrders(orders, cancellations, aging, stock, returns);
 
-  return { orders, cancellations, aging, stock, estimated, generatedAt };
+  return { orders, cancellations, aging, stock, returns, estimated, generatedAt };
 }
 
 export default async function handler(req, res) {

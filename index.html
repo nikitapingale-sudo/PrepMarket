@@ -341,6 +341,7 @@
   <button data-t="overview" class="on">Overview</button>
   <button data-t="sales">Sales &amp; Demand</button>
   <button data-t="ops">Operations</button>
+  <button data-t="returns">Returns <span class="cnt" id="retCount">0</span></button>
   <button data-t="inventory">Inventory</button>
   <button data-t="explorer">Data Explorer <span class="cnt" id="expCount">0</span></button>
 </div>
@@ -437,6 +438,32 @@
       <h2>Ageing orders <span class="tag">oldest first</span><span class="spacer"></span><button class="xls" data-xls="tblAging">&#8681; EXCEL</button></h2>
       <div class="overflow" id="tblAging"></div>
       <div class="pager" id="pgAging"></div>
+    </div>
+  </section>
+
+  <!-- ================= RETURNS ================= -->
+  <section class="pane" id="pane-returns">
+    <div class="kpis" id="retKpis"></div>
+
+    <div class="card">
+      <h2>Returns initiated by day <span class="tag" id="retRangeTag"></span></h2>
+      <div class="chartbox sm"><canvas id="retTrendChart"></canvas></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><h2>Return reasons<span class="spacer"></span><button class="xls" data-xls="tblRetReason">&#8681; EXCEL</button></h2><div class="overflow" id="tblRetReason"></div></div>
+      <div class="card"><h2>Return type &amp; status<span class="spacer"></span><button class="xls" data-xls="tblRetType">&#8681; EXCEL</button></h2><div class="overflow" id="tblRetType"></div></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><h2>Reverse carrier<span class="spacer"></span><button class="xls" data-xls="tblRetCarrier">&#8681; EXCEL</button></h2><div class="overflow" id="tblRetCarrier"></div></div>
+      <div class="card"><h2>Most returned SKUs<span class="spacer"></span><button class="xls" data-xls="tblRetSku">&#8681; EXCEL</button></h2><div class="overflow" id="tblRetSku"></div></div>
+    </div>
+
+    <div class="card">
+      <h2>Pending returns <span class="tag">oldest first</span> <span id="retFlag"></span><span class="spacer"></span><button class="xls" data-xls="tblReturns">&#8681; EXCEL</button></h2>
+      <div class="overflow" id="tblReturns"></div>
+      <div class="pager" id="pgReturns"></div>
     </div>
   </section>
 
@@ -609,7 +636,7 @@ function syncStick(){
 window.addEventListener('resize',syncStick);
 
 /* ---------- tabs (hash-linkable, so a view can be shared) ---------- */
-var TABS=['overview','sales','ops','inventory','explorer'];
+var TABS=['overview','sales','ops','returns','inventory','explorer'];
 function showTab(t){
   if(TABS.indexOf(t)<0)t='overview';
   document.querySelectorAll('#tabs button').forEach(function(x){x.classList.toggle('on',x.dataset.t===t);});
@@ -642,7 +669,7 @@ function showBanner(msg){
 function applyData(d){
   DATA=d;
   DATA.orders=DATA.orders||[];DATA.cancellations=DATA.cancellations||[];
-  DATA.aging=DATA.aging||[];DATA.stock=DATA.stock||[];
+  DATA.aging=DATA.aging||[];DATA.stock=DATA.stock||[];DATA.returns=DATA.returns||[];
   EST=DATA.estimated||{};
   el('gen').textContent='synced '+d.generatedAt;
   drawFreshness();
@@ -1170,6 +1197,8 @@ function render(){
   /* mix tables (these replaced the doughnut charts) */
   tblPayMix(O);tblCancBy(Cc);tblCourier(O);tblStockCat();
 
+  renderReturns(days,nOrders);
+
   tblSku(O);tblState(O);tblCity(O);tblChannel(O,Cc);tblCat(O);
   tblCanc(Cc);tblAging(agingRows);
   tblStock(O,span);tblStockAll(O,span);
@@ -1197,6 +1226,130 @@ function paintKpis(id,defs){
       (k.sp?sparkline(k.sp,k.spc||cssVar('--cyan')):'')+'</div>';
   }).join('');
   defs.forEach(function(k,i){countUp(el(id+'v'+i),k.v,k.f);});
+}
+
+/* ============================ RETURNS ============================ */
+/**
+ * Reverse logistics from the "Pending Returns report" tab. Returns are dated by
+ * when they were RAISED, not when the order was placed, so they fall in the
+ * period a leader would expect. Order-level filters (payment, category, state)
+ * do not apply here - a return row carries none of those - so this view honours
+ * the date range and the search box only.
+ */
+function returnsIn(from,to){
+  return DATA.returns.filter(function(r){
+    if(r.day&&(r.day<from||r.day>to))return false;
+    if(!F.q)return true;
+    return [r.order,r.sku,r.product,r.reason,r.status,r.type,r.carrier,r.awb,r.marketplace]
+      .some(function(v){return v&&String(v).toLowerCase().indexOf(F.q)>=0;});
+  });
+}
+/** Days since the return was raised - how long it has been outstanding. */
+function retAge(r){return r.day?Math.max(0,daysBetween(r.day,todayStr())):null;}
+
+function renderReturns(days,nOrders){
+  var R=returnsIn(F.from,F.to);
+  el('retCount').textContent=fmtN(R.length);
+  el('retRangeTag').textContent=days.length?fmtDay(days[0])+' → '+fmtDay(days[days.length-1]):'';
+
+  var units=sum(R,function(r){return r.qty;});
+  var value=sum(R,function(r){return r.value;});
+  var ages=R.map(retAge).filter(function(v){return v!=null;});
+  var avgAge=ages.length?ages.reduce(function(a,b){return a+b;},0)/ages.length:0;
+  var oldest=ages.length?Math.max.apply(null,ages):0;
+  var awaiting=R.filter(function(r){return !r.gateDay;}).length;
+  var over7=R.filter(function(r){var a=retAge(r);return a!=null&&a>7;}).length;
+  var rate=nOrders?R.length/nOrders*100:0;
+
+  paintKpis('retKpis',[
+    {lab:'Pending Returns',v:R.length,f:fmtN,sub:fmtN(units)+' units',
+      a1:'var(--red)',a2:'var(--amber)',gl:'rgba(248,113,113,.25)',d:''},
+    {lab:'Value At Risk',v:value,f:fmtK,
+      sub:EST.returnsEstimated?'est. from SKU price':'declared packet amount',
+      a1:'var(--amber)',a2:'var(--red)',gl:'rgba(251,191,36,.25)',d:''},
+    {lab:'Return Rate',v:rate,f:function(n){return n.toFixed(1)+'%';},
+      sub:'of '+fmtN(nOrders)+' orders in range',
+      a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:''},
+    {lab:'Avg Days Pending',v:avgAge,f:function(n){return n.toFixed(1)+'d';},
+      sub:'since return was raised',
+      a1:'var(--cyan)',a2:'var(--violet)',gl:'var(--glow-cyan)',d:''},
+    {lab:'Oldest Pending',v:oldest,f:function(n){return Math.round(n)+'d'},
+      sub:over7+' over 7 days',
+      a1:'var(--red)',a2:'var(--red)',gl:'rgba(248,113,113,.3)',d:''},
+    {lab:'Awaiting Receipt',v:awaiting,f:fmtN,sub:'not yet gate-entered at the warehouse',
+      a1:'var(--blue)',a2:'var(--cyan)',gl:'rgba(96,165,250,.25)',d:''}
+  ]);
+
+  el('retFlag').innerHTML=over7
+    ? '<span class="pill red">&#9888; '+over7+' over 7 days</span>'
+    : (R.length?'<span class="pill green">all under 7 days</span>':'');
+
+  drawRetTrend(days,R);
+
+  countTable('tblRetReason','Return Reasons','Reason',
+    tallyRows(R,function(r){return r.reason;}),'Returns');
+  countTable('tblRetType','Return Type & Status','Type / Status',
+    tallyRows(R,function(r){return r.type+' · '+r.status;}),'Returns');
+  countTable('tblRetCarrier','Reverse Carrier','Carrier',
+    tallyRows(R,function(r){return r.carrier||'Not assigned';}),'Returns');
+
+  /* most-returned SKUs, with units and value rather than a bare count */
+  var m={};
+  R.forEach(function(r){
+    var k=r.sku||r.product;if(!k)return;
+    m[k]=m[k]||{key:k,product:r.product,returns:0,units:0,value:0};
+    m[k].returns++;m[k].units+=r.qty;m[k].value+=r.value||0;});
+  renderTable('tblRetSku',
+    [{k:'key',label:'SKU'},{k:'product',label:'Product'},
+     {k:'returns',label:'Returns',r:1,bar:1},{k:'units',label:'Units',r:1},
+     Object.assign({k:'value',label:'Value'},C_MONEY)],
+    Object.keys(m).map(function(k){return m[k];})
+      .sort(function(a,b){return b.returns-a.returns;}),
+    'No returns in this range.',{name:'Most Returned SKUs',totals:1});
+
+  renderTable('tblReturns',
+    [{k:'day',label:'Raised',fmt:function(v){return fmtDay(v);},xl:function(v){return v||'';}},
+     {k:'age',label:'Days',r:1,fmt:function(v){
+        return v==null?'':v>7?'<span class="tone-red">'+v+'</span>'
+          :v>3?'<span class="tone-amber">'+v+'</span>':v;}},
+     {k:'order',label:'Order'},{k:'sku',label:'SKU'},{k:'product',label:'Product'},
+     {k:'qty',label:'Qty',r:1},
+     Object.assign({k:'value',label:'Value'},C_MONEY),
+     {k:'reason',label:'Reason'},{k:'type',label:'Type'},
+     {k:'status',label:'Status'},{k:'carrier',label:'Reverse Carrier'},
+     {k:'awb',label:'Reverse AWB'},
+     {k:'gateDay',label:'Received',fmt:function(v){
+        return v?fmtDay(v):'<span class="tone-amber">awaiting</span>';},
+      xl:function(v){return v||'awaiting';}}],
+    R.map(function(r){return Object.assign({},r,{age:retAge(r)});})
+      .sort(function(a,b){return (b.age||0)-(a.age||0);}),
+    'No pending returns in this range — nothing in reverse logistics.',
+    {name:'Pending Returns',pageSize:20,pager:'pgReturns'});
+}
+
+/** [{key,count}] rows for countTable, from any grouping function. */
+function tallyRows(rows,keyF){
+  var m={};
+  rows.forEach(function(r){var k=keyF(r);if(!k)return;m[k]=(m[k]||0)+1;});
+  return Object.keys(m).map(function(k){return {key:k,count:m[k]};});
+}
+
+function drawRetTrend(days,R){
+  var T=chartTheme();
+  var m={};days.forEach(function(d){m[d]=0;});
+  R.forEach(function(r){if(m[r.day]!=null)m[r.day]++;});
+  killChart('retTrendChart');
+  if(!R.length){chartMsg('retTrendChart','&#128230;','No returns raised in this range.');return;}
+  chartMsg('retTrendChart',null,null);
+  charts.retTrendChart=new Chart(el('retTrendChart'),{type:'bar',
+    data:{labels:days.map(fmtDay),datasets:[{label:'Returns raised',
+      data:days.map(function(d){return m[d];}),
+      backgroundColor:hexA(cssVar('--red'),.8),hoverBackgroundColor:cssVar('--red'),
+      borderRadius:5,maxBarThickness:30}]},
+    options:{maintainAspectRatio:false,animation:{duration:600},
+      scales:{y:{beginAtZero:true,ticks:{precision:0},grid:{color:T.grid}},
+        x:{grid:{display:false},ticks:{maxRotation:0,autoSkipPadding:14}}},
+      plugins:{legend:{display:false},tooltip:T.tt}}});
 }
 
 /* ---------- auto insights ---------- */
@@ -1249,6 +1402,14 @@ function drawInsights(O,Cc,days,byDay,sRev,rev,pRev,nOrders,cancRate,over7,oos,a
   else add('✅','var(--green)','No order has been sitting open longer than 7 days.');
 
   if(oos)add('\u{1F4E6}','var(--red)','<b>'+oos+' SKUs</b> are fully out of stock and cannot be sold right now.');
+
+  var R=returnsIn(F.from,F.to);
+  if(R.length){
+    var rOver7=R.filter(function(r){var a=retAge(r);return a!=null&&a>7;}).length;
+    add('\u{1F504}','var(--amber)','<b>'+R.length+' return'+(R.length>1?'s':'')+'</b> pending'+
+      (nOrders?' ('+(R.length/nOrders*100).toFixed(1)+'% of orders)':'')+
+      (rOver7?' — <b>'+rOver7+'</b> outstanding over 7 days.':'.'));
+  }
 
   var codShare=nOrders?uniq(O.filter(function(r){return /cod|cash/i.test(r.pay);}),
     function(r){return r.ref;})/nOrders*100:0;
@@ -1951,6 +2112,7 @@ document.addEventListener('click',function(e){
 el('exportAll').onclick=function(){
   var ids=['tblPayMix','tblSku','tblState','tblCity','tblChannel','tblCat',
     'tblCancBy','tblCanc','tblCourier','tblAging',
+    'tblRetReason','tblRetType','tblRetCarrier','tblRetSku','tblReturns',
     'tblStock','tblStockCat','tblStockAll','tblDaily','tblExplorer'];
   var have=ids.filter(function(i){return TABLES[i]&&TABLES[i].rows.length;});
   if(!have.length){alert('No data loaded yet.');return;}
