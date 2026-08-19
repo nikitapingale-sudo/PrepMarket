@@ -375,14 +375,11 @@
     </div>
 
     <div class="grid2">
-      <div class="card"><h2>Channel mix <span class="tag">click a row to filter</span><span class="spacer"></span><button class="xls" data-xls="tblChannelMix">&#8681; EXCEL</button></h2><div class="overflow" id="tblChannelMix"></div></div>
       <div class="card"><h2>Payment split <span class="tag">click a row to filter</span><span class="spacer"></span><button class="xls" data-xls="tblPayMix">&#8681; EXCEL</button></h2><div class="overflow" id="tblPayMix"></div></div>
+      <div class="card"><h2>Category mix <span class="tag">click to filter</span></h2><div class="chartbox sm"><canvas id="catChart"></canvas></div></div>
     </div>
 
-    <div class="grid2">
-      <div class="card"><h2>Category mix <span class="tag">click to filter</span></h2><div class="chartbox sm"><canvas id="catChart"></canvas></div></div>
-      <div class="card"><h2>Order status pipeline</h2><div class="chartbox sm"><canvas id="statusChart"></canvas></div></div>
-    </div>
+    <div class="card"><h2>Order status pipeline <span class="tag">click a bar to filter</span></h2><div class="chartbox sm"><canvas id="statusChart"></canvas></div></div>
   </section>
 
   <!-- ================= SALES ================= -->
@@ -507,7 +504,7 @@ var EST={};                         /* which money figures the API had to derive
    "no filter", i.e. everything - so selecting all values and selecting none
    are the same thing, and the dashboard can never be filtered down to nothing
    by accident. */
-var F={preset:'all',from:null,to:null,channel:[],pay:[],state:[],cat:[],
+var F={preset:'all',from:null,to:null,pay:[],state:[],cat:[],
        status:[],q:'',compare:false,trend:'daily'};
 var MS={};   /* multi-select state, keyed by filter name */
 
@@ -854,10 +851,6 @@ function buildDimFilters(){
   mk('msPay','pay','Payment',function(r){return r.pay;});
   mk('msState','state','State',function(r){return r.state;});
   mk('msCat','cat','Category',function(r){return r.category;});
-  /* Channel has no dropdown by design - it is reachable from the Channel mix
-     chart and shown as a removable chip. Registered so counts/labels exist. */
-  var cc=tally(function(r){return r.channel;});
-  MS.channel={host:null,label:'Channel',values:Object.keys(cc).sort(),counts:cc,q:'',open:false};
 }
 var searchTimer=null;
 el('fSearch').oninput=function(){
@@ -867,7 +860,7 @@ el('fSearch').oninput=function(){
 };
 el('fCompare').onchange=function(){F.compare=this.checked;render();};
 el('resetF').onclick=function(){
-  F.channel=[];F.pay=[];F.state=[];F.cat=[];F.status=[];F.q='';F.compare=false;
+  F.pay=[];F.state=[];F.cat=[];F.status=[];F.q='';F.compare=false;
   Object.keys(MS).forEach(function(k){if(MS[k].host)renderMulti(k);});
   el('fSearch').value='';el('fCompare').checked=false;
   resetPages();setPreset('all');
@@ -939,8 +932,7 @@ function drawFilterChips(){
     chips.push('<span class="fchip" title="'+esc(s.join(', '))+'">'+label+' <b>'+esc(txt)+'</b>'+
       '<button data-clear="'+key+'" title="Clear">&times;</button></span>');
   }
-  add('Order Status','status');add('Payment','pay');add('State','state');
-  add('Category','cat');add('Channel','channel');
+  add('Order Status','status');add('Payment','pay');add('State','state');add('Category','cat');
   if(F.q)chips.push('<span class="fchip">Search <b>'+esc(F.q)+'</b>'+
     '<button data-clear="q" title="Clear">&times;</button></span>');
   el('fchips').innerHTML=chips.length
@@ -970,8 +962,7 @@ function inSel(key,v){
   return !s||!s.length||s.indexOf(v)>=0;
 }
 function passDims(r){
-  return inSel('channel',r.channel)&&
-         inSel('pay',r.pay)&&
+  return inSel('pay',r.pay)&&
          inSel('state',r.state)&&
          inSel('cat',r.category)&&
          inSel('status',r.status)&&
@@ -983,7 +974,6 @@ function ordersIn(from,to){
 function cancIn(from,to){
   return DATA.cancellations.filter(function(r){
     return r.day>=from&&r.day<=to&&
-      inSel('channel',r.channel)&&
       (!F.q||[r.order,r.sku,r.product,r.reason,r.by].some(function(v){
         return v&&String(v).toLowerCase().indexOf(F.q)>=0;}));
   });
@@ -1178,7 +1168,7 @@ function render(){
   drawStockCharts();
 
   /* mix tables (these replaced the doughnut charts) */
-  tblChannelMix(O);tblPayMix(O);tblCancBy(Cc);tblCourier(O);tblStockCat();
+  tblPayMix(O);tblCancBy(Cc);tblCourier(O);tblStockCat();
 
   tblSku(O);tblState(O);tblCity(O);tblChannel(O,Cc);tblCat(O);
   tblCanc(Cc);tblAging(agingRows);
@@ -1712,7 +1702,6 @@ function countTable(elmId,name,label,rows,countLabel){
     'Nothing to show for this filter.',{name:name,totals:1});
 }
 
-function tblChannelMix(O){mixTable('tblChannelMix','Channel Mix','Channel',O,function(r){return r.channel;},'channel');}
 function tblPayMix(O){mixTable('tblPayMix','Payment Split','Payment',O,function(r){return r.pay;},'pay');}
 
 function tblCancBy(Cc){
@@ -1928,6 +1917,8 @@ function tableToAOA(t){
 function stamp(){
   return new Date().toISOString().slice(0,10);
 }
+/** Render a multi-select value for the exported Report Info sheet. */
+function selTxt(s){return (s&&s.length)?s.join(', '):'All';}
 function downloadCSV(aoa,filename){
   var csv=aoa.map(function(row){
     return row.map(function(v){
@@ -1958,8 +1949,9 @@ document.addEventListener('click',function(e){
   if(b)exportOne(b.dataset.xls);
 });
 el('exportAll').onclick=function(){
-  var ids=['tblSku','tblState','tblCity','tblChannel','tblCat','tblCanc','tblAging',
-    'tblStock','tblStockAll','tblDaily','tblExplorer'];
+  var ids=['tblPayMix','tblSku','tblState','tblCity','tblChannel','tblCat',
+    'tblCancBy','tblCanc','tblCourier','tblAging',
+    'tblStock','tblStockCat','tblStockAll','tblDaily','tblExplorer'];
   var have=ids.filter(function(i){return TABLES[i]&&TABLES[i].rows.length;});
   if(!have.length){alert('No data loaded yet.');return;}
   var base='PrepMarket_Dashboard_'+stamp();
@@ -1981,8 +1973,10 @@ el('exportAll').onclick=function(){
     ['Exported at',new Date().toLocaleString('en-IN')],
     ['Data synced at',DATA?DATA.generatedAt:''],
     ['Date range',F.from+'  to  '+F.to],
-    ['Channel',F.channel],['Payment',F.pay],['State',F.state],
-    ['Category',F.cat],['Status',F.status],['Search',F.q||'(none)'],
+    /* filters are arrays now; empty means no filter */
+    ['Order Status',selTxt(F.status)],['Payment',selTxt(F.pay)],
+    ['State',selTxt(F.state)],['Category',selTxt(F.cat)],
+    ['Search',F.q||'(none)'],
     [],['Note',DATA&&DATA.demo?'PREVIEW MODE - sample data, not live Sheet data':'Live Google Sheet data']
   ]),'Report Info');
   have.forEach(function(i){
