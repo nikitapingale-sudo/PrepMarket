@@ -534,6 +534,18 @@ var EST={};                         /* which money figures the API had to derive
 var F={preset:'all',from:null,to:null,pay:[],state:[],cat:[],
        status:[],q:'',compare:false,trend:'daily'};
 var MS={};   /* multi-select state, keyed by filter name */
+var TOUCHED={};  /* filters the user has changed - defaults stop applying once set */
+
+/* Dead orders are excluded by default so revenue, AOV and order counts reflect
+   business that actually stands. Tick them in the Order Status filter to see
+   them. */
+var DEAD_STATUS=/cancel|return|\brto\b/i;
+function defaultStatusSel(){
+  var m=MS.status;if(!m)return [];
+  var keep=m.values.filter(function(v){return !DEAD_STATUS.test(v);});
+  /* nothing to exclude, or everything would be excluded -> leave unfiltered */
+  return (!keep.length||keep.length===m.values.length)?[]:keep;
+}
 
 /* ---------- small helpers ---------- */
 function el(id){return document.getElementById(id);}
@@ -825,7 +837,7 @@ function wireMulti(key){
      the dashboard showing nothing. */
   host.querySelector('.ms-all input').onclick=function(e){
     e.stopPropagation();
-    F[key]=[];
+    F[key]=[];TOUCHED[key]=true;
     renderMulti(key);resetPages();render();
   };
 
@@ -834,7 +846,7 @@ function wireMulti(key){
       e.stopPropagation();
       var v=cb.value,s=(F[key]||[]).slice(),i=s.indexOf(v);
       if(i>=0)s.splice(i,1);else s.push(v);
-      F[key]=s;normSel(key);
+      F[key]=s;TOUCHED[key]=true;normSel(key);
       renderMulti(key);resetPages();render();
     };
   });
@@ -842,7 +854,7 @@ function wireMulti(key){
   host.querySelectorAll('.ms-foot button').forEach(function(b){
     b.onclick=function(e){
       e.stopPropagation();
-      if(b.dataset.a==='clear'){F[key]=[];renderMulti(key);resetPages();render();}
+      if(b.dataset.a==='clear'){F[key]=[];TOUCHED[key]=true;renderMulti(key);resetPages();render();}
       else{m.open=false;renderMulti(key);}
     };
   });
@@ -860,6 +872,7 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeAllMult
 function toggleOnly(key,label){
   var s=F[key]||[];
   F[key]=(s.length===1&&s[0]===label)?[]:[label];
+  TOUCHED[key]=true;
   if(MS[key])renderMulti(key);
   resetPages();render();
 }
@@ -878,6 +891,14 @@ function buildDimFilters(){
   mk('msPay','pay','Payment',function(r){return r.pay;});
   mk('msState','state','State',function(r){return r.state;});
   mk('msCat','cat','Category',function(r){return r.category;});
+
+  /* Re-apply the default on every refresh until the user picks their own, so a
+     newly appearing status (e.g. "Delivered") is included rather than silently
+     hidden. Once they touch the filter, their choice is left alone. */
+  if(!TOUCHED.status){
+    F.status=defaultStatusSel();
+    renderMulti('status');
+  }
 }
 var searchTimer=null;
 el('fSearch').oninput=function(){
@@ -887,7 +908,9 @@ el('fSearch').oninput=function(){
 };
 el('fCompare').onchange=function(){F.compare=this.checked;render();};
 el('resetF').onclick=function(){
-  F.pay=[];F.state=[];F.cat=[];F.status=[];F.q='';F.compare=false;
+  F.pay=[];F.state=[];F.cat=[];F.q='';F.compare=false;
+  TOUCHED={};                       /* back to defaults, including status */
+  F.status=defaultStatusSel();
   Object.keys(MS).forEach(function(k){if(MS[k].host)renderMulti(k);});
   el('fSearch').value='';el('fCompare').checked=false;
   resetPages();setPreset('all');
@@ -970,7 +993,7 @@ function drawFilterChips(){
     b.onclick=function(){
       var k=b.dataset.clear;
       if(k==='q'){F.q='';el('fSearch').value='';}
-      else{F[k]=[];if(MS[k])renderMulti(k);}
+      else{F[k]=[];TOUCHED[k]=true;if(MS[k])renderMulti(k);}
       resetPages();render();
     };
   });
