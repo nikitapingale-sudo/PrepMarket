@@ -35,6 +35,7 @@ const TABS = {
   aging: "Aging_Raw",
   stock: "Stock_Raw",
   returns: "Pending Returns report",
+  clicks: "Banner_Clicks",
 };
 
 /* ---------- gviz fetch: returns [{header: value, ...}, ...] ---------- */
@@ -322,6 +323,28 @@ function normalizeReturns(raw) {
 }
 
 /**
+ * "Banner_Clicks" - category banner click-throughs, exported from BigQuery
+ * (silver_dbt_category_banner_click) and pasted in with the query's own column
+ * names: event_date, page_location, redirection_url, total_clicks.
+ *
+ * gviz answers with a fallback sheet when a tab name does not match, so rows
+ * that carry none of the expected columns are dropped rather than ingested as
+ * if they were click data.
+ */
+function normalizeClicks(raw) {
+  const out = [];
+  for (const o of raw) {
+    const day = toDayStr(pick(o, ["event_date", "Event Date", "date", "day"]));
+    const dest = strip(pick(o, ["redirection_url", "Redirection URL", "destination_url"]));
+    const src = strip(pick(o, ["page_location", "Page Location", "source_url"]));
+    const clicks = num(pick(o, ["total_clicks", "Total Clicks", "clicks", "click_count"]));
+    if (!day || (!dest && !src)) continue;
+    out.push({ day, src, dest, clicks: clicks || 0 });
+  }
+  return out;
+}
+
+/**
  * Cancellations_Raw and Aging_Raw carry no money column, and Stock_Raw carries
  * no MRP, so those figures would all render as zero. Orders_Raw does have both
  * MRP and Selling Price, so fill the gaps from a SKU price map built off orders
@@ -392,13 +415,14 @@ function normalizeStock(raw) {
 
 /* ---------- handler ---------- */
 export async function buildPayload() {
-  const [ordersRaw, cancRaw, agingRaw, stockRaw, returnsRaw] = await Promise.all([
+  const [ordersRaw, cancRaw, agingRaw, stockRaw, returnsRaw, clicksRaw] = await Promise.all([
     fetchTab(TABS.orders),
     fetchTab(TABS.cancellations),
     fetchTab(TABS.aging),
     fetchTab(TABS.stock),
-    // a missing returns tab must not take the whole dashboard down
+    // optional tabs: a missing one must not take the whole dashboard down
     fetchTab(TABS.returns).catch(() => []),
+    fetchTab(TABS.clicks).catch(() => []),
   ]);
 
   const now = new Date();
@@ -413,9 +437,10 @@ export async function buildPayload() {
   const aging = normalizeAging(agingRaw);
   const stock = normalizeStock(stockRaw);
   const returns = normalizeReturns(returnsRaw);
+  const clicks = normalizeClicks(clicksRaw);
   const estimated = fillFromOrders(orders, cancellations, aging, stock, returns);
 
-  return { orders, cancellations, aging, stock, returns, estimated, generatedAt };
+  return { orders, cancellations, aging, stock, returns, clicks, estimated, generatedAt };
 }
 
 export default async function handler(req, res) {

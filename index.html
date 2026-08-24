@@ -342,6 +342,7 @@
   <button data-t="sales">Sales &amp; Demand</button>
   <button data-t="ops">Operations</button>
   <button data-t="returns">Pending Returns Report <span class="cnt" id="retCount">0</span></button>
+  <button data-t="clicks">Banner Clicks <span class="cnt" id="clkCount">0</span></button>
   <button data-t="inventory">Inventory</button>
   <button data-t="explorer">Data Explorer <span class="cnt" id="expCount">0</span></button>
 </div>
@@ -464,6 +465,51 @@
       <h2>Pending returns <span class="tag">oldest first</span> <span id="retFlag"></span><span class="spacer"></span><button class="xls" data-xls="tblReturns">&#8681; EXCEL</button></h2>
       <div class="overflow" id="tblReturns"></div>
       <div class="pager" id="pgReturns"></div>
+    </div>
+  </section>
+
+  <!-- ================= BANNER CLICKS ================= -->
+  <section class="pane" id="pane-clicks">
+    <div id="clkEmpty" style="display:none">
+      <div class="card"><div class="empty">
+        <span class="big">&#128200;</span>
+        <b>No banner click data yet.</b><br><br>
+        Add a tab named <b>Banner_Clicks</b> to the Google Sheet and paste the
+        BigQuery export into it, keeping the query's own column headers:<br>
+        <code style="color:var(--cyan)">event_date &nbsp;|&nbsp; page_location &nbsp;|&nbsp; redirection_url &nbsp;|&nbsp; total_clicks</code>
+        <br><br>This page fills in automatically on the next refresh.
+      </div></div>
+    </div>
+
+    <div id="clkBody" style="display:none">
+      <div class="kpis" id="clkKpis"></div>
+
+      <div class="card">
+        <h2>Clicks by day <span class="tag" id="clkRangeTag"></span></h2>
+        <div class="chartbox sm"><canvas id="clkTrendChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>Destination pages <span class="tag">where the banner sends people</span><span class="spacer"></span><button class="xls" data-xls="tblClkDest">&#8681; EXCEL</button></h2>
+        <div class="overflow" id="tblClkDest"></div>
+      </div>
+
+      <div class="card">
+        <h2>Source pages <span class="tag">where the banner was clicked</span><span class="spacer"></span><button class="xls" data-xls="tblClkSrc">&#8681; EXCEL</button></h2>
+        <div class="overflow" id="tblClkSrc"></div>
+      </div>
+
+      <div class="card">
+        <h2>Click detail <span class="tag">every source &rarr; destination pair</span><span class="spacer"></span><button class="xls" data-xls="tblClicks">&#8681; EXCEL</button></h2>
+        <div class="overflow" id="tblClicks"></div>
+        <div class="pager" id="pgClicks"></div>
+      </div>
+
+      <div class="card">
+        <h2>Daily summary<span class="spacer"></span><button class="xls" data-xls="tblClkDaily">&#8681; EXCEL</button></h2>
+        <div class="overflow" id="tblClkDaily"></div>
+        <div class="pager" id="pgClkDaily"></div>
+      </div>
     </div>
   </section>
 
@@ -648,7 +694,7 @@ function syncStick(){
 window.addEventListener('resize',syncStick);
 
 /* ---------- tabs (hash-linkable, so a view can be shared) ---------- */
-var TABS=['overview','sales','ops','returns','inventory','explorer'];
+var TABS=['overview','sales','ops','returns','clicks','inventory','explorer'];
 function showTab(t){
   if(TABS.indexOf(t)<0)t='overview';
   document.querySelectorAll('#tabs button').forEach(function(x){x.classList.toggle('on',x.dataset.t===t);});
@@ -682,6 +728,7 @@ function applyData(d){
   DATA=d;
   DATA.orders=DATA.orders||[];DATA.cancellations=DATA.cancellations||[];
   DATA.aging=DATA.aging||[];DATA.stock=DATA.stock||[];DATA.returns=DATA.returns||[];
+  DATA.clicks=DATA.clicks||[];
   EST=DATA.estimated||{};
   el('gen').textContent='synced '+d.generatedAt;
   drawFreshness();
@@ -1221,6 +1268,7 @@ function render(){
   tblPayMix(O);tblCancBy(Cc);tblCourier(O);tblStockCat();
 
   renderReturns(days,nOrders);
+  renderClicks(days);
 
   tblSku(O);tblState(O);tblCity(O);tblChannel(O,Cc);tblCat(O);
   tblCanc(Cc);tblAging(agingRows);
@@ -1368,6 +1416,132 @@ function drawRetTrend(days,R){
     data:{labels:days.map(fmtDay),datasets:[{label:'Returns raised',
       data:days.map(function(d){return m[d];}),
       backgroundColor:hexA(cssVar('--red'),.8),hoverBackgroundColor:cssVar('--red'),
+      borderRadius:5,maxBarThickness:30}]},
+    options:{maintainAspectRatio:false,animation:{duration:600},
+      scales:{y:{beginAtZero:true,ticks:{precision:0},grid:{color:T.grid}},
+        x:{grid:{display:false},ticks:{maxRotation:0,autoSkipPadding:14}}},
+      plugins:{legend:{display:false},tooltip:T.tt}}});
+}
+
+/* ============================ BANNER CLICKS ============================ */
+/**
+ * Category banner click-throughs from the BigQuery export. This is traffic
+ * data, not order data, so the order-level filters (payment, status, category)
+ * do not apply - only the date range and the search box.
+ */
+function clicksIn(from,to){
+  return DATA.clicks.filter(function(r){
+    if(r.day&&(r.day<from||r.day>to))return false;
+    if(!F.q)return true;
+    return [r.src,r.dest].some(function(v){return v&&String(v).toLowerCase().indexOf(F.q)>=0;});
+  });
+}
+/** URLs are long; show the readable part but keep the original for export. */
+function shortUrl(u){
+  if(!u)return '(none)';
+  var s=String(u).replace(/^https?:\/\//i,'').replace(/\/+$/,'');
+  return s.length>68?s.slice(0,67)+'…':s;
+}
+function urlCell(v){
+  return '<span title="'+esc(v||'')+'">'+esc(shortUrl(v))+'</span>';
+}
+
+function renderClicks(days){
+  var C=clicksIn(F.from,F.to);
+  var total=sum(C,function(r){return r.clicks;});
+  el('clkCount').textContent=fmtN(total);
+
+  /* no tab yet, or it is empty - show the setup card instead of empty widgets */
+  if(!DATA.clicks.length){
+    el('clkEmpty').style.display='block';
+    el('clkBody').style.display='none';
+    return;
+  }
+  el('clkEmpty').style.display='none';
+  el('clkBody').style.display='block';
+  el('clkRangeTag').textContent=days.length?fmtDay(days[0])+' → '+fmtDay(days[days.length-1]):'';
+
+  var byDay={};days.forEach(function(d){byDay[d]=0;});
+  C.forEach(function(r){if(byDay[r.day]!=null)byDay[r.day]+=r.clicks;});
+  var series=days.map(function(d){return byDay[d];});
+  var activeDays=series.filter(function(v){return v>0;}).length;
+  var best=series.length?Math.max.apply(null,series):0;
+  var bestDay=series.length?days[series.indexOf(best)]:null;
+
+  function tally(keyF){
+    var m={};
+    C.forEach(function(r){var k=keyF(r)||'(none)';m[k]=(m[k]||0)+r.clicks;});
+    return Object.keys(m).map(function(k){return {key:k,clicks:m[k],
+      share:total?m[k]/total*100:0};}).sort(function(a,b){return b.clicks-a.clicks;});
+  }
+  var dests=tally(function(r){return r.dest;});
+  var srcs=tally(function(r){return r.src;});
+
+  paintKpis('clkKpis',[
+    {lab:'Total Clicks',v:total,f:fmtN,sub:fmtN(C.length)+' source→destination pairs',
+      a1:'var(--cyan)',a2:'var(--violet)',gl:'var(--glow-cyan)',d:'',sp:series,spc:cssVar('--cyan')},
+    {lab:'Clicks / Day',v:activeDays?total/activeDays:0,f:function(n){return n.toFixed(1);},
+      sub:'across '+activeDays+' active day'+(activeDays===1?'':'s'),
+      a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:''},
+    {lab:'Best Day',v:best,f:fmtN,sub:bestDay?fmtDay(bestDay):'—',
+      a1:'var(--amber)',a2:'var(--green)',gl:'rgba(251,191,36,.25)',d:''},
+    {lab:'Destinations',v:dests.length,f:fmtN,sub:'distinct landing pages',
+      a1:'var(--green)',a2:'var(--cyan)',gl:'rgba(52,211,153,.3)',d:''},
+    {lab:'Source Pages',v:srcs.length,f:fmtN,sub:'pages carrying the banner',
+      a1:'var(--blue)',a2:'var(--violet)',gl:'rgba(96,165,250,.25)',d:''},
+    {lab:'Top Destination',v:dests.length?dests[0].share:0,
+      f:function(n){return n.toFixed(1)+'%';},
+      sub:dests.length?shortUrl(dests[0].key):'—',
+      a1:'var(--pink)',a2:'var(--violet)',gl:'rgba(244,114,182,.25)',d:''}
+  ]);
+
+  drawClkTrend(days,byDay);
+
+  var urlCols=function(label){
+    return [{k:'key',label:label,fmt:urlCell,xl:function(v){return v;}},
+            {k:'clicks',label:'Clicks',r:1,bar:1},
+            Object.assign({k:'share',label:'% of Clicks'},C_SHARE)];
+  };
+  renderTable('tblClkDest',urlCols('Destination URL'),dests,
+    'No clicks in this range.',{name:'Click Destinations',totals:1});
+  renderTable('tblClkSrc',urlCols('Source Page'),srcs,
+    'No clicks in this range.',{name:'Click Sources',totals:1});
+
+  renderTable('tblClicks',
+    [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v||'';}},
+     {k:'src',label:'Source Page',fmt:urlCell,xl:function(v){return v;}},
+     {k:'dest',label:'Destination URL',fmt:urlCell,xl:function(v){return v;}},
+     {k:'clicks',label:'Clicks',r:1}],
+    C.slice().sort(function(a,b){return b.clicks-a.clicks;}),
+    'No clicks in this range.',
+    {name:'Click Detail',pageSize:25,pager:'pgClicks',totals:1});
+
+  var daily=days.filter(function(d){return byDay[d]>0;}).map(function(d){
+    var rows=C.filter(function(r){return r.day===d;});
+    var ds={};rows.forEach(function(r){ds[r.dest]=1;});
+    return {day:d,dow:DOW[dowOf(d)],clicks:byDay[d],dests:Object.keys(ds).length,
+      share:total?byDay[d]/total*100:0};});
+  renderTable('tblClkDaily',
+    [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
+     {k:'dow',label:'Day'},
+     {k:'clicks',label:'Clicks',r:1,bar:1},
+     {k:'dests',label:'Destinations',r:1},
+     Object.assign({k:'share',label:'% of Clicks'},C_SHARE)],
+    daily.sort(function(a,b){return a.day<b.day?1:-1;}),
+    'No clicks in this range.',
+    {name:'Clicks Daily Summary',pageSize:20,pager:'pgClkDaily',totals:1});
+}
+
+function drawClkTrend(days,byDay){
+  var T=chartTheme();
+  killChart('clkTrendChart');
+  var vals=days.map(function(d){return byDay[d];});
+  if(!vals.some(function(v){return v>0;})){
+    chartMsg('clkTrendChart','&#128200;','No clicks in this date range.');return;}
+  chartMsg('clkTrendChart',null,null);
+  charts.clkTrendChart=new Chart(el('clkTrendChart'),{type:'bar',
+    data:{labels:days.map(fmtDay),datasets:[{label:'Clicks',data:vals,
+      backgroundColor:hexA(cssVar('--cyan'),.8),hoverBackgroundColor:cssVar('--cyan'),
       borderRadius:5,maxBarThickness:30}]},
     options:{maintainAspectRatio:false,animation:{duration:600},
       scales:{y:{beginAtZero:true,ticks:{precision:0},grid:{color:T.grid}},
@@ -2136,6 +2310,7 @@ el('exportAll').onclick=function(){
   var ids=['tblPayMix','tblSku','tblState','tblCity','tblChannel','tblCat',
     'tblCancBy','tblCanc','tblCourier','tblAging',
     'tblRetReason','tblRetType','tblRetCarrier','tblRetSku','tblReturns',
+    'tblClkDest','tblClkSrc','tblClicks','tblClkDaily',
     'tblStock','tblStockCat','tblStockAll','tblDaily','tblExplorer'];
   var have=ids.filter(function(i){return TABLES[i]&&TABLES[i].rows.length;});
   if(!have.length){alert('No data loaded yet.');return;}
