@@ -197,6 +197,10 @@
   .xls:hover{background:rgba(52,211,153,.22)}
   .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px}
   .grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:16px}
+  .minihead{display:flex;align-items:center;gap:8px;font-size:10.5px;letter-spacing:.11em;
+    text-transform:uppercase;font-weight:800;color:var(--mute);
+    padding-bottom:7px;margin-bottom:2px;border-bottom:1px solid var(--line2)}
+  .minihead .xls{margin-left:auto;padding:2px 7px;font-size:11px}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line2);
     font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mute);
@@ -374,6 +378,24 @@
         </div>
       </h2>
       <div class="chartbox"><canvas id="trendChart"></canvas></div>
+    </div>
+
+    <div class="card">
+      <h2>Top 5 SKUs <span class="tag">ranked three ways</span></h2>
+      <div class="grid3">
+        <div>
+          <div class="minihead">By Orders <button class="xls" data-xls="tblTop5Orders">&#8681;</button></div>
+          <div class="overflow" id="tblTop5Orders"></div>
+        </div>
+        <div>
+          <div class="minihead">By Revenue <button class="xls" data-xls="tblTop5Rev">&#8681;</button></div>
+          <div class="overflow" id="tblTop5Rev"></div>
+        </div>
+        <div>
+          <div class="minihead">By Units <button class="xls" data-xls="tblTop5Units">&#8681;</button></div>
+          <div class="overflow" id="tblTop5Units"></div>
+        </div>
+      </div>
     </div>
 
     <div class="grid2">
@@ -728,6 +750,14 @@ function applyData(d){
   if(d.demo){
     showBanner('PREVIEW MODE — showing generated sample data. '+
       (d.demoReason||'The live Google Sheet was not readable.'));
+  }else if(d.dataIssues&&d.dataIssues.skuCollisions){
+    /* The sheet's SKU column is numeric and has been rounded to scientific
+       notation, merging distinct products. Grouping uses EAN instead, but the
+       sheet still needs fixing, so say so rather than hiding it. */
+    showBanner('Sheet issue: the SKU column is stored as a number and has been rounded '+
+      '(8704683638919 → 8.70E+12), merging '+d.dataIssues.productsMerged+' products into '+
+      d.dataIssues.skuCollisions+' SKU value(s). Product analysis is grouped by EAN instead. '+
+      'Fix: format the SKU column as Plain Text in the Sheet, then re-paste.');
   }else{el('bannerSlot').innerHTML='';}
   buildDimFilters();
   if(!F.from)setPreset('all');else render();  /* render() also builds the ticker */
@@ -1204,7 +1234,7 @@ function render(){
     {lab:'Low Stock SKUs',v:lowStock,f:fmtN,sub:oos+' fully out of stock',
       a1:'var(--red)',a2:'var(--amber)',gl:'rgba(248,113,113,.25)',d:''},
     {lab:'Reach',v:uniq(O,function(r){return r.state;}),f:fmtN,
-      sub:uniq(O,function(r){return r.city;})+' cities · '+uniq(O,function(r){return r.sku;})+' SKUs',
+      sub:uniq(O,function(r){return r.city;})+' cities · '+uniq(O,function(r){return r.pid;})+' SKUs',
       a1:'var(--pink)',a2:'var(--violet)',gl:'var(--glow-violet)',d:''}
   ]);
 
@@ -1218,13 +1248,13 @@ function render(){
     {lab:'Best Day',v:sRev.length?sRev[bestDayIdx]:0,f:fmtK,
       sub:sRev.length?fmtDay(days[bestDayIdx]):'—',
       a1:'var(--amber)',a2:'var(--green)',gl:'rgba(251,191,36,.25)',d:''},
-    {lab:'Active SKUs',v:uniq(O,function(r){return r.sku;}),f:fmtN,
+    {lab:'Active SKUs',v:uniq(O,function(r){return r.pid;}),f:fmtN,
       sub:'of '+DATA.stock.length+' in the catalogue',
       a1:'var(--violet)',a2:'var(--cyan)',gl:'var(--glow-violet)',d:''},
     {lab:'Top State Share',v:topShare(O,function(r){return r.state;}),
       f:function(n){return n.toFixed(1)+'%';},sub:topName(O,function(r){return r.state;}),
       a1:'var(--pink)',a2:'var(--violet)',gl:'rgba(244,114,182,.25)',d:''},
-    {lab:'Top SKU Share',v:topShare(O,function(r){return r.sku;}),
+    {lab:'Top SKU Share',v:topShare(O,function(r){return r.pid;}),
       f:function(n){return n.toFixed(1)+'%';},sub:topName(O,function(r){return r.product;}),
       a1:'var(--blue)',a2:'var(--cyan)',gl:'rgba(96,165,250,.25)',d:''}
   ]);
@@ -1290,6 +1320,7 @@ function render(){
   renderReturns(days,nOrders);
   renderClicks(days);
 
+  tblTop5(O);
   tblSku(O);tblState(O);tblCity(O);tblChannel(O,Cc);tblCat(O);
   tblCanc(Cc);tblAging(agingRows);
   tblStock(O,span);tblStockAll(O,span);
@@ -2141,13 +2172,44 @@ function tblStockCat(){
     'No stock report uploaded yet.',{name:'Stock By Category',totals:1});
 }
 
+/**
+ * Overview leaderboards: the same SKUs ranked by orders, revenue and units.
+ * The three orderings rarely agree - a cheap fast mover tops "orders" while a
+ * combo tops "revenue" - and seeing that side by side is the point.
+ */
+function tblTop5(O){
+  var all=groupBy(O,function(r){return r.pid;},function(r){return r.product;});
+  function mini(elmId,name,key,label,col){
+    var total=all.reduce(function(a,r){return a+(r[key]||0);},0);
+    /* clone: the three tables share source objects, so share% must not leak */
+    var rows=all.slice().sort(function(a,b){return (b[key]||0)-(a[key]||0);})
+      .slice(0,5).map(function(r){
+        var c=Object.assign({},r);
+        c.pctOfTotal=total?(r[key]||0)/total*100:0;
+        return c;});
+    renderTable(elmId,
+      [{k:'label',label:'Product',
+        fmt:function(v,r){
+          var t=v||r.key;
+          return '<span title="'+esc(t)+' · '+esc(r.key)+'">'+
+            esc(t.length>22?t.slice(0,21)+'…':t)+'</span>';},
+        xl:function(v,r){return v||r.key;}},
+       Object.assign({k:key,label:label,bar:1},col),
+       Object.assign({k:'pctOfTotal',label:'%'},C_SHARE)],
+      rows,'No orders in this range.',{name:name});
+  }
+  mini('tblTop5Orders','Top 5 SKUs by Orders','orders','Orders',{r:1});
+  mini('tblTop5Rev','Top 5 SKUs by Revenue','rev','Revenue',C_MONEY);
+  mini('tblTop5Units','Top 5 SKUs by Units','units','Units',{r:1});
+}
+
 function tblSku(O){
   renderTable('tblSku',
-    [{k:'key',label:'SKU'},{k:'label',label:'Product'},
+    [{k:'key',label:'EAN'},{k:'label',label:'Product'},
      {k:'orders',label:'Orders',r:1},{k:'units',label:'Units',r:1},
      Object.assign({k:'rev',label:'Revenue',bar:1},C_MONEY),
      Object.assign({k:'share',label:'Share'},C_SHARE)],
-    groupBy(O,function(r){return r.sku;},function(r){return r.product;}).slice(0,25),
+    groupBy(O,function(r){return r.pid;},function(r){return r.product;}).slice(0,25),
     'No orders in this range.',{name:'Top SKUs'});
 }
 function tblState(O){
@@ -2359,7 +2421,8 @@ document.addEventListener('click',function(e){
   if(b)exportOne(b.dataset.xls);
 });
 el('exportAll').onclick=function(){
-  var ids=['tblPayMix','tblSku','tblState','tblCity','tblChannel','tblCat',
+  var ids=['tblTop5Orders','tblTop5Rev','tblTop5Units',
+    'tblPayMix','tblSku','tblState','tblCity','tblChannel','tblCat',
     'tblCancBy','tblCanc','tblCourier','tblAging',
     'tblRetReason','tblRetType','tblRetCarrier','tblRetSku','tblReturns',
     'tblClkDest','tblClkSrc','tblClicks','tblClkDaily',

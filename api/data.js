@@ -222,6 +222,16 @@ function normalizeOrders(raw) {
       qty,
       itemQty,
       sku,
+      ean: strip(pick(o, ["EAN"])),
+      /**
+       * Grouping key. The SKU column arrives as a NUMBER, and Google Sheets has
+       * rounded it to scientific notation (8704683638919 -> 8.70E+12), so many
+       * different products collapse onto one value. EAN is stored as text and
+       * survives intact, so it is the reliable identifier; fall back to SKU and
+       * then the product name if EAN is ever missing.
+       */
+      pid: strip(pick(o, ["EAN"])) || sku ||
+           strip(pick(o, ["Product Name", "product_name", "Item Name"])),
       product: strip(pick(o, ["Product Name", "product_name", "Item Name"])),
       category: strip(pick(o, ["Category", "Product Category"])) || "Uncategorized",
       pay: strip(pick(o, ["Payment Mode", "Payment Method", "payment_mode"])) || "Unknown",
@@ -470,12 +480,25 @@ export async function buildPayload() {
   const returns = normalizeReturns(returnsRaw);
   const estimated = fillFromOrders(orders, cancellations, aging, stock, returns);
 
+  /* Flag the rounded-SKU problem so the dashboard can warn rather than quietly
+     reporting merged products as if they were one. */
+  const skuToPid = {};
+  for (const o of orders) {
+    if (!o.sku || !o.pid) continue;
+    (skuToPid[o.sku] = skuToPid[o.sku] || new Set()).add(o.pid);
+  }
+  const collidedSkus = Object.keys(skuToPid).filter((s) => skuToPid[s].size > 1);
+  const dataIssues = {
+    skuCollisions: collidedSkus.length,
+    productsMerged: collidedSkus.reduce((a, s) => a + skuToPid[s].size, 0),
+  };
+
   return {
     orders, cancellations, aging, stock, returns,
     clicks: clicksResult.rows,
     clicksSource: clicksResult.source,
     clicksError: clicksResult.error,
-    estimated, generatedAt,
+    estimated, dataIssues, generatedAt,
   };
 }
 
