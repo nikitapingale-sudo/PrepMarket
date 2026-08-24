@@ -478,7 +478,7 @@
       <div class="kpis" id="clkKpis"></div>
 
       <div class="card">
-        <h2>Clicks by day <span class="tag" id="clkRangeTag"></span></h2>
+        <h2>Clicks by day <span class="tag" id="clkRangeTag"></span> <span id="clkSource"></span></h2>
         <div class="chartbox sm"><canvas id="clkTrendChart"></canvas></div>
       </div>
 
@@ -737,11 +737,34 @@ function applyData(d){
   syncStick();
   scheduleAuto();
 }
+/**
+ * Banner clicks come from Trino when the network allows it. On Vercel it does
+ * not - the Trino host is a private 10.x address - so the deployed site falls
+ * back to clicks-snapshot.json, published by `npm run sync-clicks` from inside
+ * the corporate network.
+ */
+function withClickSnapshot(d){
+  if(d.clicks&&d.clicks.length)return Promise.resolve(d);
+  return fetch('clicks-snapshot.json',{cache:'no-store'})
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(s){
+      if(s&&s.rows&&s.rows.length){
+        d.clicks=s.rows;
+        d.clicksSource='snapshot';
+        d.clicksSnapshotAt=s.generatedAt;
+        d.clicksError=null;
+      }
+      return d;
+    })
+    .catch(function(){return d;});
+}
+
 function load(){
   var btn=el('reload');btn.classList.add('spinning');
   fetch(API_URL,{cache:'no-store'})
     .then(function(r){return r.json().then(function(j){
       if(!r.ok||j.error)throw new Error(j.error||('API error '+r.status));return j;});})
+    .then(withClickSnapshot)
     .then(function(d){applyData(d);btn.classList.remove('spinning');})
     .catch(function(e){
       btn.classList.remove('spinning');
@@ -1453,11 +1476,11 @@ function renderClicks(days){
         'Check the TRINO_* environment variables in Vercel &rarr; Project Settings.';
     }else{
       msg='<span class="big">&#128200;</span><b>No banner click data yet.</b><br><br>'+
-        'Connect the warehouse so this page runs your SQL directly &mdash; set '+
-        '<code style="color:var(--cyan)">TRINO_URL</code> and '+
-        '<code style="color:var(--cyan)">TRINO_USER</code> in Vercel &rarr; Environment Variables.'+
-        '<br><br>Or, as a stop-gap, add a <b>Banner_Clicks</b> tab to the Sheet with columns:<br>'+
-        '<code style="color:var(--cyan)">event_date &nbsp;|&nbsp; page_location &nbsp;|&nbsp; redirection_url &nbsp;|&nbsp; total_clicks</code>';
+        'Trino is only reachable from inside the corporate network, so the live site '+
+        'reads a published snapshot.<br><br>'+
+        'From your machine, on the network, run:<br>'+
+        '<code style="color:var(--cyan);font-size:14px">npm run publish-clicks</code>'+
+        '<br><br>That runs the query and pushes the results here.';
     }
     el('clkEmptyMsg').innerHTML=msg;
     el('clkEmpty').style.display='block';
@@ -1466,8 +1489,22 @@ function renderClicks(days){
   }
   el('clkEmpty').style.display='none';
   el('clkBody').style.display='block';
-  el('clkRangeTag').title=DATA.clicksSource==='trino'
-    ? 'Live from the warehouse (Trino)' : 'From the Banner_Clicks sheet tab';
+
+  /* say plainly where these numbers came from and how fresh they are */
+  var srcNode=el('clkSource');
+  if(DATA.clicksSource==='trino'){
+    srcNode.className='pill green';
+    srcNode.textContent='live from Trino';
+    srcNode.title='Queried directly from the warehouse just now.';
+  }else if(DATA.clicksSource==='snapshot'){
+    srcNode.className='pill amber';
+    srcNode.textContent='snapshot · '+(DATA.clicksSnapshotAt||'unknown');
+    srcNode.title='Published by "npm run publish-clicks". Run it again to refresh.';
+  }else{
+    srcNode.className='pill';
+    srcNode.textContent='from Banner_Clicks sheet tab';
+    srcNode.title='';
+  }
   el('clkRangeTag').textContent=days.length?fmtDay(days[0])+' → '+fmtDay(days[days.length-1]):'';
 
   var byDay={};days.forEach(function(d){byDay[d]=0;});
