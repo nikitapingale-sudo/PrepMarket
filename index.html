@@ -471,14 +471,7 @@
   <!-- ================= BANNER CLICKS ================= -->
   <section class="pane" id="pane-clicks">
     <div id="clkEmpty" style="display:none">
-      <div class="card"><div class="empty">
-        <span class="big">&#128200;</span>
-        <b>No banner click data yet.</b><br><br>
-        Add a tab named <b>Banner_Clicks</b> to the Google Sheet and paste the
-        BigQuery export into it, keeping the query's own column headers:<br>
-        <code style="color:var(--cyan)">event_date &nbsp;|&nbsp; page_location &nbsp;|&nbsp; redirection_url &nbsp;|&nbsp; total_clicks</code>
-        <br><br>This page fills in automatically on the next refresh.
-      </div></div>
+      <div class="card"><div class="empty" id="clkEmptyMsg"></div></div>
     </div>
 
     <div id="clkBody" style="display:none">
@@ -1451,14 +1444,30 @@ function renderClicks(days){
   var total=sum(C,function(r){return r.clicks;});
   el('clkCount').textContent=fmtN(total);
 
-  /* no tab yet, or it is empty - show the setup card instead of empty widgets */
+  /* nothing to show yet - explain which source was tried and what is missing */
   if(!DATA.clicks.length){
+    var msg;
+    if(DATA.clicksError){
+      msg='<span class="big">&#9888;</span><b>Could not read clicks from the warehouse.</b><br><br>'+
+        '<span style="color:var(--red)">'+esc(DATA.clicksError)+'</span><br><br>'+
+        'Check the TRINO_* environment variables in Vercel &rarr; Project Settings.';
+    }else{
+      msg='<span class="big">&#128200;</span><b>No banner click data yet.</b><br><br>'+
+        'Connect the warehouse so this page runs your SQL directly &mdash; set '+
+        '<code style="color:var(--cyan)">TRINO_URL</code> and '+
+        '<code style="color:var(--cyan)">TRINO_USER</code> in Vercel &rarr; Environment Variables.'+
+        '<br><br>Or, as a stop-gap, add a <b>Banner_Clicks</b> tab to the Sheet with columns:<br>'+
+        '<code style="color:var(--cyan)">event_date &nbsp;|&nbsp; page_location &nbsp;|&nbsp; redirection_url &nbsp;|&nbsp; total_clicks</code>';
+    }
+    el('clkEmptyMsg').innerHTML=msg;
     el('clkEmpty').style.display='block';
     el('clkBody').style.display='none';
     return;
   }
   el('clkEmpty').style.display='none';
   el('clkBody').style.display='block';
+  el('clkRangeTag').title=DATA.clicksSource==='trino'
+    ? 'Live from the warehouse (Trino)' : 'From the Banner_Clicks sheet tab';
   el('clkRangeTag').textContent=days.length?fmtDay(days[0])+' → '+fmtDay(days[days.length-1]):'';
 
   var byDay={};days.forEach(function(d){byDay[d]=0;});

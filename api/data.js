@@ -7,6 +7,8 @@
  * (otherwise Google returns an HTML login page instead of data).
  */
 
+import { trinoConfigured, trinoQuery, bannerClicksSql } from "./trino.js";
+
 /**
  * The Sheet ID is a secret in practice: the Sheet is shared "anyone with the
  * link", and its raw tabs carry customer names, phone numbers and addresses.
@@ -345,6 +347,26 @@ function normalizeClicks(raw) {
 }
 
 /**
+ * Banner clicks come from the warehouse when Trino is configured, and from the
+ * Banner_Clicks sheet tab otherwise. Returns {rows, source, error} so the UI can
+ * say which path produced the numbers, and why the live one failed if it did.
+ */
+async function loadClicks() {
+  if (trinoConfigured()) {
+    try {
+      const raw = await trinoQuery(bannerClicksSql(Number(process.env.CLICKS_DAYS) || 90));
+      return { rows: normalizeClicks(raw), source: "trino", error: null };
+    } catch (e) {
+      // fall through to the sheet rather than losing the page entirely
+      const sheetRows = normalizeClicks(await fetchTab(TABS.clicks).catch(() => []));
+      return { rows: sheetRows, source: sheetRows.length ? "sheet" : "none", error: e.message };
+    }
+  }
+  const sheetRows = normalizeClicks(await fetchTab(TABS.clicks).catch(() => []));
+  return { rows: sheetRows, source: sheetRows.length ? "sheet" : "none", error: null };
+}
+
+/**
  * Cancellations_Raw and Aging_Raw carry no money column, and Stock_Raw carries
  * no MRP, so those figures would all render as zero. Orders_Raw does have both
  * MRP and Selling Price, so fill the gaps from a SKU price map built off orders
@@ -415,14 +437,14 @@ function normalizeStock(raw) {
 
 /* ---------- handler ---------- */
 export async function buildPayload() {
-  const [ordersRaw, cancRaw, agingRaw, stockRaw, returnsRaw, clicksRaw] = await Promise.all([
+  const [ordersRaw, cancRaw, agingRaw, stockRaw, returnsRaw, clicksResult] = await Promise.all([
     fetchTab(TABS.orders),
     fetchTab(TABS.cancellations),
     fetchTab(TABS.aging),
     fetchTab(TABS.stock),
-    // optional tabs: a missing one must not take the whole dashboard down
+    // optional sources: a missing one must not take the whole dashboard down
     fetchTab(TABS.returns).catch(() => []),
-    fetchTab(TABS.clicks).catch(() => []),
+    loadClicks(),
   ]);
 
   const now = new Date();
@@ -437,10 +459,15 @@ export async function buildPayload() {
   const aging = normalizeAging(agingRaw);
   const stock = normalizeStock(stockRaw);
   const returns = normalizeReturns(returnsRaw);
-  const clicks = normalizeClicks(clicksRaw);
   const estimated = fillFromOrders(orders, cancellations, aging, stock, returns);
 
-  return { orders, cancellations, aging, stock, returns, clicks, estimated, generatedAt };
+  return {
+    orders, cancellations, aging, stock, returns,
+    clicks: clicksResult.rows,
+    clicksSource: clicksResult.source,
+    clicksError: clicksResult.error,
+    estimated, generatedAt,
+  };
 }
 
 export default async function handler(req, res) {
