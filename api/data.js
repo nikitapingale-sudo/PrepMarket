@@ -203,7 +203,15 @@ function normalizeOrders(raw) {
     if (seen.has(key)) continue;
     seen.add(key);
 
-    const qty = num(pick(o, ["Item Quantity", "Quantity", "Qty"])) || 1;
+    /**
+     * "Units" means saleable units, so it comes from Suborder Quantity.
+     * Item Quantity counts the individual books INSIDE a bundle - one "Physics
+     * Combo" is 1 unit sold but 6 items - so using it inflated unit counts and
+     * made units-per-order look far higher than it is. Item Quantity is kept
+     * separately as itemQty for anyone who wants the pack-out view.
+     */
+    const qty = num(pick(o, ["Suborder Quantity", "Item Quantity", "Quantity", "Qty"])) || 1;
+    const itemQty = num(pick(o, ["Item Quantity", "Quantity", "Qty"])) || qty;
     const price = num(pick(o, ["Selling Price", "Total Amount", "Item Total", "Amount"]));
     out.push({
       ref,
@@ -212,6 +220,7 @@ function normalizeOrders(raw) {
       hour: toHour(rawDate),
       status: strip(pick(o, ["Order Status", "order_status", "Status"])) || "Unknown",
       qty,
+      itemQty,
       sku,
       product: strip(pick(o, ["Product Name", "product_name", "Item Name"])),
       category: strip(pick(o, ["Category", "Product Category"])) || "Uncategorized",

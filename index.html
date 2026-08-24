@@ -1135,6 +1135,8 @@ function render(){
   var nOrders=uniq(O,function(r){return r.ref;});
   var pOrders=uniq(PO,function(r){return r.ref;});
   var units=sum(O,function(r){return r.qty;});
+  /* individual items shipped: higher than units whenever combos are sold */
+  var items=sum(O,function(r){return r.itemQty||r.qty;});
   var rev=sum(O,function(r){return r.price;});
   var pRev=sum(PO,function(r){return r.price;});
   var aov=nOrders?rev/nOrders:0, pAov=pOrders?pRev/pOrders:0;
@@ -1178,7 +1180,9 @@ function render(){
       a1:'var(--green)',a2:'var(--cyan)',gl:'rgba(52,211,153,.3)',d:delta(rev,pRev),sp:sRev,spc:cssVar('--green')},
     {lab:'Avg Order Value',v:aov,f:fmtINR,sub:pAov?'prev '+fmtINR(pAov):'per unique order',
       a1:'var(--blue)',a2:'var(--cyan)',gl:'rgba(96,165,250,.25)',d:delta(aov,pAov)},
-    {lab:'Units Sold',v:units,f:fmtN,sub:(nOrders?(units/nOrders).toFixed(2):'0')+' units per order',
+    {lab:'Units Sold',v:units,f:fmtN,
+      sub:(nOrders?(units/nOrders).toFixed(2):'0')+' units per order'+
+        (items>units?' · '+fmtN(items)+' items incl. combos':''),
       a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:'',sp:sUnits,spc:cssVar('--violet')},
     {lab:'COD Share',v:nOrders?cod/nOrders*100:0,f:function(n){return n.toFixed(1)+'%';},
       sub:fmtN(cod)+' COD · '+fmtN(nOrders-cod)+' prepaid',
@@ -2275,7 +2279,9 @@ function tblExplorer(O){
   renderTable('tblExplorer',
     [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v||'';}},
      {k:'ref',label:'Order'},{k:'sku',label:'SKU'},{k:'product',label:'Product'},
-     {k:'category',label:'Category'},{k:'qty',label:'Qty',r:1},
+     {k:'category',label:'Category'},{k:'qty',label:'Units',r:1},
+     {k:'itemQty',label:'Items',r:1,fmt:function(v,r){
+        return (v>r.qty)?'<span class="tone-amber" title="combo: '+v+' items in 1 unit">'+v+'</span>':v;}},
      Object.assign({k:'price',label:'Amount'},C_MONEY),
      {k:'pay',label:'Payment'},{k:'channel',label:'Channel'},
      {k:'city',label:'City'},{k:'state',label:'State'},
