@@ -21,6 +21,33 @@
 const MAX_POLLS = 60;      // safety net so a stuck query cannot spin forever
 const POLL_PAUSE_MS = 250;
 
+/**
+ * Whole-operation budget. This must stay well under the serverless function
+ * limit (10s on Vercel Hobby): the Trino host resolves to a private 10.x
+ * address, so from outside the corporate network the connection HANGS rather
+ * than refusing. Without a hard abort that would stall /api/data and take the
+ * entire dashboard down, not just this one page.
+ */
+const DEFAULT_BUDGET_MS = Number(process.env.TRINO_TIMEOUT_MS) || 8000;
+
+async function fetchWithTimeout(url, opts, ms) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), Math.max(500, ms));
+  try {
+    return await fetch(url, { ...opts, signal: ac.signal });
+  } catch (e) {
+    if (e && e.name === "AbortError") {
+      throw new Error(
+        `Trino did not respond within ${Math.round(ms / 1000)}s. The host resolves to a private ` +
+        `address, so it is only reachable from inside the corporate network.`
+      );
+    }
+    throw new Error(`Cannot reach Trino: ${e.message}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function trinoConfigured() {
   return Boolean(process.env.TRINO_URL && process.env.TRINO_USER);
 }
@@ -49,17 +76,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * Runs SQL and returns [{column: value, ...}, ...].
  * Throws with a readable message so the dashboard can surface the real reason.
  */
-export async function trinoQuery(sql, { timeoutMs = 25000 } = {}) {
+export async function trinoQuery(sql, { timeoutMs = DEFAULT_BUDGET_MS } = {}) {
   if (!trinoConfigured()) throw new Error("Trino is not configured (TRINO_URL / TRINO_USER unset).");
 
   const base = String(process.env.TRINO_URL).replace(/\/+$/, "");
   const started = Date.now();
+  const left = () => timeoutMs - (Date.now() - started);
 
-  let res = await fetch(base + "/v1/statement", {
+  let res = await fetchWithTimeout(base + "/v1/statement", {
     method: "POST",
     headers: { ...authHeaders(), "Content-Type": "text/plain" },
     body: sql,
-  });
+  }, left());
   if (!res.ok) {
     throw new Error(`Trino rejected the query (HTTP ${res.status}). Check TRINO_URL and credentials.`);
   }
@@ -77,14 +105,14 @@ export async function trinoQuery(sql, { timeoutMs = 25000 } = {}) {
     if (payload.data) rows.push(...payload.data);
 
     if (!payload.nextUri) break;
-    if (Date.now() - started > timeoutMs) {
+    if (left() <= 0) {
       throw new Error(`Trino query exceeded ${Math.round(timeoutMs / 1000)}s. Narrow the date range.`);
     }
 
     // QUEUED/RUNNING states come back with no data; pause so we don't hammer it
     if (!payload.data) await sleep(POLL_PAUSE_MS);
 
-    const next = await fetch(payload.nextUri, { headers: authHeaders() });
+    const next = await fetchWithTimeout(payload.nextUri, { headers: authHeaders() }, left());
     if (!next.ok) throw new Error(`Trino polling failed (HTTP ${next.status}).`);
     payload = await next.json();
   }
