@@ -219,6 +219,8 @@ function normalizeOrders(raw) {
       day,
       hour: toHour(rawDate),
       status: strip(pick(o, ["Order Status", "order_status", "Status"])) || "Unknown",
+      // blank means the courier has no scan yet - label it so it stays filterable
+      shipStatus: strip(pick(o, ["Shipping Status"])) || "Not shipped",
       qty,
       itemQty,
       sku,
