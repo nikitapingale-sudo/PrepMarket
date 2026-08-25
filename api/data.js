@@ -371,10 +371,12 @@ function normalizeClicks(raw) {
     const dest = strip(pick(o, ["redirection_url", "Redirection URL", "destination_url"]));
     const src = strip(pick(o, ["page_location", "Page Location", "source_url"]));
     const clicks = num(pick(o, ["total_clicks", "Total Clicks", "clicks", "click_count"]));
-    // distinct users for THIS group only - not additive across groups
+    // distinct counts for THIS group only - not additive across groups
     const users = num(pick(o, ["distinct_users", "Distinct Users", "user_id", "users"]));
+    const visitors = num(pick(o, ["distinct_visitors", "Distinct Visitors",
+                                  "user_pseudo_id", "visitors"]));
     if (!day || (!dest && !src)) continue;
-    out.push({ day, src, dest, clicks: clicks || 0, users: users || 0 });
+    out.push({ day, src, dest, clicks: clicks || 0, users: users || 0, visitors: visitors || 0 });
   }
   return out;
 }
@@ -411,12 +413,14 @@ async function loadClicksUncached() {
         trinoQuery(bannerClicksSql(days)),
         trinoQuery(bannerUsersByDaySql(days)),
       ]);
-      const dailyUsers = {};
+      const dailyUsers = {}, dailyVisitors = {};
       for (const r of userRows) {
         const d = toDayStr(r.event_date);
-        if (d) dailyUsers[d] = num(r.distinct_users);
+        if (!d) continue;
+        dailyUsers[d] = num(r.distinct_users);
+        dailyVisitors[d] = num(r.distinct_visitors);
       }
-      return { rows: normalizeClicks(raw), dailyUsers, source: "trino", error: null };
+      return { rows: normalizeClicks(raw), dailyUsers, dailyVisitors, source: "trino", error: null };
     } catch (e) {
       // fall through to the sheet rather than losing the page entirely
       const sheetRows = normalizeClicks(await fetchTab(TABS.clicks).catch(() => []));
@@ -539,6 +543,7 @@ export async function buildPayload() {
     orders, cancellations, aging, stock, returns,
     clicks: clicksResult.rows,
     clicksDailyUsers: clicksResult.dailyUsers || {},
+    clicksDailyVisitors: clicksResult.dailyVisitors || {},
     clicksSource: clicksResult.source,
     clicksError: clicksResult.error,
     clicksAgeMin: clicksResult.cachedAgeMs != null

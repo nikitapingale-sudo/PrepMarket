@@ -782,6 +782,7 @@ function withClickSnapshot(d){
       if(s&&s.rows&&s.rows.length){
         d.clicks=s.rows;
         d.clicksDailyUsers=s.dailyUsers||{};
+        d.clicksDailyVisitors=s.dailyVisitors||{};
         d.clicksSource='snapshot';
         d.clicksSnapshotAt=s.generatedAt;
         d.clicksError=null;
@@ -1562,9 +1563,10 @@ function renderClicks(days){
     var m={};
     C.forEach(function(r){
       var k=keyF(r)||'(none)';
-      m[k]=m[k]||{clicks:0,users:0};
-      m[k].clicks+=r.clicks;m[k].users+=(r.users||0);});
-    return Object.keys(m).map(function(k){return {key:k,clicks:m[k].clicks,users:m[k].users,
+      m[k]=m[k]||{clicks:0,users:0,visitors:0};
+      m[k].clicks+=r.clicks;m[k].users+=(r.users||0);m[k].visitors+=(r.visitors||0);});
+    return Object.keys(m).map(function(k){return {key:k,clicks:m[k].clicks,
+      users:m[k].users,visitors:m[k].visitors,
       share:total?m[k].clicks/total*100:0};}).sort(function(a,b){return b.clicks-a.clicks;});
   }
   var dests=tally(function(r){return r.dest;});
@@ -1572,19 +1574,27 @@ function renderClicks(days){
 
   /* Distinct users per day is exact; summing across days counts a returning
      visitor once per day they came back. Labelled so it is not misread. */
-  var du=DATA.clicksDailyUsers||{};
+  var du=DATA.clicksDailyUsers||{}, dv=DATA.clicksDailyVisitors||{};
   var users=days.reduce(function(a,d){return a+(du[d]||0);},0);
+  var visitors=days.reduce(function(a,d){return a+(dv[d]||0);},0);
   var userDays=days.filter(function(d){return du[d];}).length;
+  var anonPc=visitors?(visitors-users)/visitors*100:0;
 
   paintKpis('clkKpis',[
     {lab:'Total Clicks',v:total,f:fmtN,sub:fmtN(C.length)+' source→destination pairs',
       a1:'var(--cyan)',a2:'var(--violet)',gl:'var(--glow-cyan)',d:'',sp:series,spc:cssVar('--cyan')},
-    {lab:'Distinct Users',v:users,f:fmtN,
-      sub:userDays>1?'daily uniques, summed over '+userDays+' days':'signed-in users',
+    /* Two audience measures. user_id is only set once someone signs in, so it
+       misses logged-out traffic; user_pseudo_id counts every browser. */
+    {lab:'Signed-in Users',v:users,f:fmtN,
+      sub:'user_id'+(userDays>1?' · daily uniques over '+userDays+' days':''),
       a1:'var(--green)',a2:'var(--cyan)',gl:'rgba(52,211,153,.3)',d:'',
       sp:days.map(function(d){return du[d]||0;}),spc:cssVar('--green')},
-    {lab:'Clicks / User',v:users?total/users:0,f:function(n){return n.toFixed(2);},
-      sub:'banner clicks per user per day',
+    {lab:'All Visitors',v:visitors,f:fmtN,
+      sub:'user_pseudo_id · '+anonPc.toFixed(0)+'% not signed in',
+      a1:'var(--blue)',a2:'var(--violet)',gl:'rgba(96,165,250,.25)',d:'',
+      sp:days.map(function(d){return dv[d]||0;}),spc:cssVar('--blue')},
+    {lab:'Clicks / Visitor',v:visitors?total/visitors:0,f:function(n){return n.toFixed(2);},
+      sub:users?(total/users).toFixed(2)+' per signed-in user':'per visitor per day',
       a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:''},
     {lab:'Clicks / Day',v:activeDays?total/activeDays:0,f:function(n){return n.toFixed(1);},
       sub:'across '+activeDays+' active day'+(activeDays===1?'':'s'),
@@ -1602,7 +1612,8 @@ function renderClicks(days){
   var urlCols=function(label){
     return [{k:'key',label:label,fmt:urlCell,xl:function(v){return v;}},
             {k:'clicks',label:'Clicks',r:1,bar:1},
-            {k:'users',label:'Users',r:1,noTotal:1},
+            {k:'users',label:'Signed-in',r:1,noTotal:1},
+            {k:'visitors',label:'Visitors',r:1,noTotal:1},
             Object.assign({k:'share',label:'% of Clicks'},C_SHARE)];
   };
   renderTable('tblClkDest',urlCols('Destination URL'),dests,
@@ -1615,7 +1626,8 @@ function renderClicks(days){
      {k:'src',label:'Source Page',fmt:urlCell,xl:function(v){return v;}},
      {k:'dest',label:'Destination URL',fmt:urlCell,xl:function(v){return v;}},
      {k:'clicks',label:'Clicks',r:1},
-     {k:'users',label:'Users',r:1,noTotal:1}],
+     {k:'users',label:'Signed-in',r:1,noTotal:1},
+     {k:'visitors',label:'Visitors',r:1,noTotal:1}],
     C.slice().sort(function(a,b){return b.clicks-a.clicks;}),
     'No clicks in this range.',
     {name:'Click Detail',pageSize:25,pager:'pgClicks',totals:1});
@@ -1625,14 +1637,16 @@ function renderClicks(days){
     var ds={};rows.forEach(function(r){ds[r.dest]=1;});
     return {day:d,dow:DOW[dowOf(d)],clicks:byDay[d],dests:Object.keys(ds).length,
       users:du[d]||0,
-      perUser:du[d]?byDay[d]/du[d]:0,
+      visitors:dv[d]||0,
+      perUser:dv[d]?byDay[d]/dv[d]:0,
       share:total?byDay[d]/total*100:0};});
   renderTable('tblClkDaily',
     [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
      {k:'dow',label:'Day'},
      {k:'clicks',label:'Clicks',r:1,bar:1},
-     {k:'users',label:'Users',r:1},
-     {k:'perUser',label:'Clicks/User',r:1,fmt:function(v){return v?v.toFixed(2):'—';},
+     {k:'users',label:'Signed-in',r:1},
+     {k:'visitors',label:'Visitors',r:1},
+     {k:'perUser',label:'Clicks/Visitor',r:1,fmt:function(v){return v?v.toFixed(2):'—';},
       xl:function(v){return +(v||0).toFixed(2);},noTotal:1},
      {k:'dests',label:'Destinations',r:1,noTotal:1},
      Object.assign({k:'share',label:'% of Clicks'},C_SHARE)],

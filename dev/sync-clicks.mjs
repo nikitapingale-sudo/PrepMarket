@@ -66,18 +66,22 @@ for (const r of rows) {
     dest: String(r.redirection_url || ""),
     clicks: Number(r.total_clicks) || 0,
     users: Number(r.distinct_users) || 0,
+    visitors: Number(r.distinct_visitors) || 0,
   });
 }
 
-/* distinct users per day - kept separate because distinct counts don't add up */
-const dailyUsers = {};
+/* per-day audience - kept separate because distinct counts don't add up */
+const dailyUsers = {}, dailyVisitors = {};
 for (const r of userRows || []) {
   const d = String(r.event_date || "").slice(0, 10);
-  if (d) dailyUsers[d] = Number(r.distinct_users) || 0;
+  if (!d) continue;
+  dailyUsers[d] = Number(r.distinct_users) || 0;
+  dailyVisitors[d] = Number(r.distinct_visitors) || 0;
 }
 
 const total = clicks.reduce((a, c) => a + c.clicks, 0);
 const userTotal = Object.values(dailyUsers).reduce((a, n) => a + n, 0);
+const visitorTotal = Object.values(dailyVisitors).reduce((a, n) => a + n, 0);
 const dates = clicks.map((c) => c.day).sort();
 
 const snapshot = {
@@ -93,13 +97,15 @@ const snapshot = {
   to: dates[dates.length - 1] || null,
   rows: clicks,
   dailyUsers,
+  dailyVisitors,
 };
 
 writeFileSync(OUT, JSON.stringify(snapshot, null, 0));
 
 console.log(`  rows        : ${clicks.length}`);
 console.log(`  total clicks: ${total.toLocaleString("en-IN")}`);
-console.log(`  daily users : ${userTotal.toLocaleString("en-IN")} (summed across ${Object.keys(dailyUsers).length} days)`);
+console.log(`  signed-in   : ${userTotal.toLocaleString("en-IN")} (daily uniques, ${Object.keys(dailyUsers).length} days)`);
+console.log(`  visitors    : ${visitorTotal.toLocaleString("en-IN")} (daily uniques, incl. logged-out)`);
 console.log(`  range       : ${snapshot.from} -> ${snapshot.to}`);
 console.log(`  written     : clicks-snapshot.json`);
 console.log(`\n  Now run "npm run deploy" to publish it (or use "npm run publish-clicks").\n`);

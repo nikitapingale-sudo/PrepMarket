@@ -138,23 +138,29 @@ SELECT
     element_at(event_params, 'page_location').string_value   AS page_location,
     element_at(event_params, 'redirection_url').string_value AS redirection_url,
     count(*)                                                 AS total_clicks,
-    count(distinct user_id)                                  AS distinct_users
+    count(distinct user_id)                                  AS distinct_users,
+    count(distinct user_pseudo_id)                           AS distinct_visitors
 FROM pw_bq.silver_dbt_category_banner_click${WHERE(days)}
 GROUP BY 1, 2, 3
 ORDER BY 1 DESC, 4 DESC`.trim();
 }
 
 /**
- * Distinct users per DAY, queried separately because distinct counts cannot be
- * added up. Summing the per-row user counts from the query above would count
- * one person once per banner they clicked. This gives an accurate figure for
- * each day, which the dashboard sums with that caveat stated on screen.
+ * Audience per DAY, queried separately because distinct counts cannot be added
+ * up. Summing the per-row counts above would count one person once per banner
+ * they clicked. This gives an accurate figure for each day, which the dashboard
+ * sums with that caveat stated on screen.
+ *
+ * Two measures, because they answer different questions:
+ *   user_id        - signed-in people, absent for ~11% of clicks
+ *   user_pseudo_id - every browser, including logged-out visitors
  */
 export function bannerUsersByDaySql(days = 90) {
   return `
 SELECT
-    date(event_datetime)    AS event_date,
-    count(distinct user_id) AS distinct_users
+    date(event_datetime)           AS event_date,
+    count(distinct user_id)        AS distinct_users,
+    count(distinct user_pseudo_id) AS distinct_visitors
 FROM pw_bq.silver_dbt_category_banner_click${WHERE(days)}
 GROUP BY 1
 ORDER BY 1 DESC`.trim();
