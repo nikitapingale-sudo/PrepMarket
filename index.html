@@ -276,7 +276,9 @@
   @media (min-width:1500px){
     header,.filters,.tabs,main,#loader{padding-left:32px;padding-right:32px}
     .chartbox{height:360px}.chartbox.sm{height:290px}.chartbox.xs{height:230px}
-    .kpis{grid-template-columns:repeat(6,1fr)}
+    /* --n is set per KPI bank in paintKpis, so a bank of 7 sits on one row
+       instead of leaving a lone card stranded below six. */
+    .kpis{grid-template-columns:repeat(var(--n,6),1fr)}
     .kpi .val{font-size:29px}
     .grid2{grid-template-columns:1fr 1fr}
   }
@@ -1346,6 +1348,9 @@ function topName(O,f){
 }
 function paintKpis(id,defs){
   var host=el(id);if(!host)return;
+  /* One row up to 8 cards; beyond that split into two balanced rows, because
+     12 cards across a single row leaves each one too narrow to read. */
+  host.style.setProperty('--n',defs.length<=8?defs.length:Math.ceil(defs.length/2));
   host.innerHTML=defs.map(function(k,i){
     return '<div class="kpi" style="--a1:'+k.a1+';--a2:'+k.a2+';--gl:'+k.gl+';animation-delay:'+(i*45)+'ms">'+
       '<div class="glow"></div>'+
