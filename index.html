@@ -1837,6 +1837,36 @@ function drawInsights(s){
     uniq(O,function(r){return r.state;})+' states'+
     (stShare>40?' — concentration risk, worth diversifying.':'.'));
 
+  /* Volume leader, which is not always the revenue leader. Each order ships to
+     exactly one state, so these order counts sum to the true order total. */
+  var stOrd=groupBy(O,function(r){return r.state;})
+    .slice().sort(function(a,b){return b.orders-a.orders;});
+  if(stOrd.length){
+    var topCount=stOrd[0].orders;
+    var tied=stOrd.filter(function(x){return x.orders===topCount;});
+    var vShare=s.nOrders?topCount/s.nOrders*100:0;
+    var stRow=stOrd.filter(function(x){return x.key===st;})[0];
+
+    if(tied.length>1){
+      /* a sorted-first state is not "the top" when several share the count */
+      add('Sales','\u{1F3D9}','var(--blue)',
+        '<b>'+tied.length+' states tie</b> for most orders at <b>'+fmtN(topCount)+
+        '</b> each ('+esc(tied.map(function(x){return x.key;}).slice(0,4).join(', '))+
+        ') — '+vShare.toFixed(1)+'% of orders apiece, so no single state dominates volume.');
+    }else{
+      add('Sales','\u{1F3D9}','var(--blue)',
+        '<b>'+esc(stOrd[0].key)+'</b> places the most orders — <b>'+fmtN(topCount)+'</b> ('+
+        vShare.toFixed(1)+'% of all)'+
+        (stOrd[0].key===st?', leading on both volume and revenue.':'.'));
+    }
+    /* volume leader vs revenue leader, stated so the numbers can't be misread */
+    if(stRow&&tied.indexOf(stRow)<0){
+      add('Sales','\u{1F4B0}','var(--cyan)',
+        '<b>'+esc(st)+'</b> leads revenue on fewer orders — <b>'+fmtINR(stRow.aov)+
+        '</b> per order versus <b>'+fmtINR(stOrd[0].aov)+'</b> in '+esc(stOrd[0].key)+'.');
+    }
+  }
+
   var prod=topName(O,function(r){return r.product;});
   if(prod!=='—')add('Sales','\u{1F4DA}','var(--green)','Best seller is <b>'+esc(prod)+'</b> at <b>'+
     topShare(O,function(r){return r.product;}).toFixed(1)+'%</b> of revenue.');
