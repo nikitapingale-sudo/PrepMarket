@@ -382,7 +382,26 @@ function normalizeClicks(raw) {
  * Banner_Clicks sheet tab otherwise. Returns {rows, source, error} so the UI can
  * say which path produced the numbers, and why the live one failed if it did.
  */
+/**
+ * Banner clicks refresh every 3 hours, not on every dashboard poll.
+ * The dashboard re-reads /api/data every 2 minutes; without this the warehouse
+ * would get a query every couple of minutes per viewer, for data that only
+ * moves hourly. Override with CLICKS_TTL_MS.
+ */
+const CLICKS_TTL_MS = Number(process.env.CLICKS_TTL_MS) || 3 * 60 * 60 * 1000;
+let clicksCache = null;   // { at, result }
+
 async function loadClicks() {
+  if (clicksCache && Date.now() - clicksCache.at < CLICKS_TTL_MS) {
+    return { ...clicksCache.result, cachedAgeMs: Date.now() - clicksCache.at };
+  }
+  const fresh = await loadClicksUncached();
+  // only cache a good read, so a transient warehouse blip isn't held for 3 hours
+  if (fresh.rows.length) clicksCache = { at: Date.now(), result: fresh };
+  return fresh;
+}
+
+async function loadClicksUncached() {
   if (trinoConfigured()) {
     try {
       const raw = await trinoQuery(bannerClicksSql(Number(process.env.CLICKS_DAYS) || 90));
@@ -510,6 +529,8 @@ export async function buildPayload() {
     clicks: clicksResult.rows,
     clicksSource: clicksResult.source,
     clicksError: clicksResult.error,
+    clicksAgeMin: clicksResult.cachedAgeMs != null
+      ? Math.round(clicksResult.cachedAgeMs / 60000) : 0,
     estimated, dataIssues, generatedAt,
   };
 }

@@ -1532,9 +1532,11 @@ function renderClicks(days){
   /* say plainly where these numbers came from and how fresh they are */
   var srcNode=el('clkSource');
   if(DATA.clicksSource==='trino'){
+    var age=DATA.clicksAgeMin||0;
     srcNode.className='pill green';
-    srcNode.textContent='live from Trino';
-    srcNode.title='Queried directly from the warehouse just now.';
+    srcNode.textContent=age<1?'live from Trino':'from Trino · '+
+      (age<60?age+'m ago':(age/60).toFixed(1)+'h ago');
+    srcNode.title='Queried from the warehouse. Refreshes every 3 hours.';
   }else if(DATA.clicksSource==='snapshot'){
     srcNode.className='pill amber';
     srcNode.textContent='snapshot · '+(DATA.clicksSnapshotAt||'unknown');
