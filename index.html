@@ -328,7 +328,7 @@
     </div>
     <input type="date" id="from" aria-label="From date"><span style="color:var(--mute)">&rarr;</span>
     <input type="date" id="to" aria-label="To date">
-    <div class="ms" id="msStatus"></div>
+    <div class="ms" id="msStage"></div>
     <div class="ms" id="msShip"></div>
     <div class="ms" id="msPay"></div>
     <div class="ms" id="msState"></div>
@@ -594,7 +594,7 @@ var EST={};                         /* which money figures the API had to derive
    are the same thing, and the dashboard can never be filtered down to nothing
    by accident. */
 var F={preset:'all',from:null,to:null,pay:[],state:[],cat:[],
-       status:[],ship:[],q:'',compare:false,trend:'daily'};
+       stage:[],ship:[],q:'',compare:false,trend:'daily'};
 var MS={};   /* multi-select state, keyed by filter name */
 var TOUCHED={};  /* filters the user has changed - defaults stop applying once set */
 
@@ -603,7 +603,7 @@ var TOUCHED={};  /* filters the user has changed - defaults stop applying once s
    them. */
 var DEAD_STATUS=/cancel|return|\brto\b/i;
 function defaultStatusSel(){
-  var m=MS.status;if(!m)return [];
+  var m=MS.stage;if(!m)return [];
   var keep=m.values.filter(function(v){return !DEAD_STATUS.test(v);});
   /* nothing to exclude, or everything would be excluded -> leave unfiltered */
   return (!keep.length||keep.length===m.values.length)?[]:keep;
@@ -981,7 +981,7 @@ function buildDimFilters(){
     var counts=tally(f);
     buildMulti(hostId,key,label,Object.keys(counts).sort(),counts);
   }
-  mk('msStatus','status','Order Status',function(r){return r.status;});
+  mk('msStage','stage','Status',function(r){return r.stage;});
   mk('msShip','ship','Shipping Status',function(r){return r.shipStatus;});
   mk('msPay','pay','Payment',function(r){return r.pay;});
   mk('msState','state','State',function(r){return r.state;});
@@ -990,9 +990,9 @@ function buildDimFilters(){
   /* Re-apply the default on every refresh until the user picks their own, so a
      newly appearing status (e.g. "Delivered") is included rather than silently
      hidden. Once they touch the filter, their choice is left alone. */
-  if(!TOUCHED.status){
-    F.status=defaultStatusSel();
-    renderMulti('status');
+  if(!TOUCHED.stage){
+    F.stage=defaultStatusSel();
+    renderMulti('stage');
   }
 }
 var searchTimer=null;
@@ -1005,7 +1005,7 @@ el('fCompare').onchange=function(){F.compare=this.checked;render();};
 el('resetF').onclick=function(){
   F.pay=[];F.state=[];F.cat=[];F.ship=[];F.q='';F.compare=false;
   TOUCHED={};                       /* back to defaults, including status */
-  F.status=defaultStatusSel();
+  F.stage=defaultStatusSel();
   Object.keys(MS).forEach(function(k){if(MS[k].host)renderMulti(k);});
   el('fSearch').value='';el('fCompare').checked=false;
   resetPages();setPreset('all');
@@ -1077,7 +1077,7 @@ function drawFilterChips(){
     chips.push('<span class="fchip" title="'+esc(s.join(', '))+'">'+label+' <b>'+esc(txt)+'</b>'+
       '<button data-clear="'+key+'" title="Clear">&times;</button></span>');
   }
-  add('Order Status','status');add('Shipping Status','ship');
+  add('Status','stage');add('Shipping Status','ship');
   add('Payment','pay');add('State','state');add('Category','cat');
   if(F.q)chips.push('<span class="fchip">Search <b>'+esc(F.q)+'</b>'+
     '<button data-clear="q" title="Clear">&times;</button></span>');
@@ -1099,7 +1099,7 @@ function drawFilterChips(){
 /* ---------- filtering ---------- */
 function matchQ(r){
   if(!F.q)return true;
-  return [r.ref,r.sku,r.ean,r.product,r.city,r.state,r.channel,r.pay,r.status,r.shipStatus,r.courier]
+  return [r.ref,r.sku,r.ean,r.product,r.city,r.state,r.channel,r.pay,r.stage,r.status,r.shipStatus,r.courier]
     .some(function(v){return v&&String(v).toLowerCase().indexOf(F.q)>=0;});
 }
 /** Empty selection = no filter, so an untouched dropdown matches everything. */
@@ -1112,7 +1112,7 @@ function passDims(r){
          inSel('pay',r.pay)&&
          inSel('state',r.state)&&
          inSel('cat',r.category)&&
-         inSel('status',r.status)&&
+         inSel('stage',r.stage)&&
          matchQ(r);
 }
 function ordersIn(from,to){
@@ -1852,7 +1852,7 @@ function drawDim(canvasId,O,keyF,type,fKey){
 
 function drawStatus(O){
   var T=chartTheme();
-  var m={};O.forEach(function(r){var s=r.status||'Unknown';
+  var m={};O.forEach(function(r){var s=r.stage||'Unknown';
     m[s]=m[s]||{};m[s][r.ref]=1;});
   var ks=Object.keys(m).sort(function(a,b){return Object.keys(m[b]).length-Object.keys(m[a]).length;});
   killChart('statusChart');
@@ -1866,7 +1866,7 @@ function drawStatus(O){
     options:{maintainAspectRatio:false,indexAxis:'y',animation:{duration:600},
       onClick:function(evt,items){
         if(!items.length)return;
-        toggleOnly('status',ks[items[0].index]);},
+        toggleOnly('stage',ks[items[0].index]);},
       onHover:function(evt,items){evt.native.target.style.cursor=items.length?'pointer':'default';},
       scales:{x:{beginAtZero:true,ticks:{precision:0},grid:{color:T.grid}},y:{grid:{display:false}}},
       plugins:{legend:{display:false},tooltip:T.tt}}});
@@ -2351,12 +2351,11 @@ function tblExplorer(O){
      Object.assign({k:'price',label:'Amount'},C_MONEY),
      {k:'pay',label:'Payment'},{k:'channel',label:'Channel'},
      {k:'city',label:'City'},{k:'state',label:'State'},
-     {k:'status',label:'Status',fmt:function(v){
+     {k:'stage',label:'Status',fmt:function(v){
        return /cancel|return/i.test(v)?'<span class="tone-red">'+esc(v)+'</span>'
-         :/deliver/i.test(v)?'<span class="tone-green">'+esc(v)+'</span>':esc(v);}},
-     {k:'shipStatus',label:'Shipping Status',fmt:function(v){
-       return /deliver/i.test(v)?'<span class="tone-green">'+esc(v)+'</span>'
-         :/not shipped/i.test(v)?'<span style="color:var(--mute)">'+esc(v)+'</span>':esc(v);}},
+         :/deliver/i.test(v)?'<span class="tone-green">'+esc(v)+'</span>'
+         :/transit|pickup/i.test(v)?'<span class="tone-amber">'+esc(v)+'</span>':esc(v);}},
+     {k:'status',label:'Order Status'},
      {k:'delivered',label:'Delivered',fmt:function(v){return fmtDay(v);},xl:function(v){return v||'';}}],
     O,'No line items match these filters.',
     {name:'Order Line Items',pageSize:+el('expSize').value,pager:'pgExplorer',
@@ -2456,7 +2455,7 @@ el('exportAll').onclick=function(){
     ['Data synced at',DATA?DATA.generatedAt:''],
     ['Date range',F.from+'  to  '+F.to],
     /* filters are arrays now; empty means no filter */
-    ['Order Status',selTxt(F.status)],['Shipping Status',selTxt(F.ship)],
+    ['Status',selTxt(F.stage)],['Shipping Status',selTxt(F.ship)],
     ['Payment',selTxt(F.pay)],
     ['State',selTxt(F.state)],['Category',selTxt(F.cat)],
     ['Search',F.q||'(none)'],

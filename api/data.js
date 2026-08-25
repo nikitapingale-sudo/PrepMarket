@@ -212,15 +212,25 @@ function normalizeOrders(raw) {
      */
     const qty = num(pick(o, ["Suborder Quantity", "Item Quantity", "Quantity", "Qty"])) || 1;
     const itemQty = num(pick(o, ["Item Quantity", "Quantity", "Qty"])) || qty;
+    const orderStatus = strip(pick(o, ["Order Status", "order_status", "Status"])) || "Unknown";
+    const shipStatus = strip(pick(o, ["Shipping Status"]));
     const price = num(pick(o, ["Selling Price", "Total Amount", "Item Total", "Amount"]));
     out.push({
       ref,
       sub,
       day,
       hour: toHour(rawDate),
-      status: strip(pick(o, ["Order Status", "order_status", "Status"])) || "Unknown",
+      status: orderStatus,
       // blank means the courier has no scan yet - label it so it stays filterable
-      shipStatus: strip(pick(o, ["Shipping Status"])) || "Not shipped",
+      shipStatus: shipStatus || "Not shipped",
+      /**
+       * Single status a leader actually cares about. Once an order is Shipped,
+       * "Shipped" stops being informative - what matters is where the parcel
+       * is - so the courier's shipping status takes over. Every other order
+       * status (Assigned/Confirmed/Pending/Cancelled/Returned) is already the
+       * most meaningful description, so it passes through unchanged.
+       */
+      stage: /^shipped$/i.test(orderStatus) ? (shipStatus || "Shipped") : orderStatus,
       qty,
       itemQty,
       sku,
