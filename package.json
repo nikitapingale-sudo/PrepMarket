@@ -10,6 +10,6 @@
     "deploy": "node dev/deploy.mjs",
     "watch": "node dev/deploy.mjs --watch",
     "sync-clicks": "node dev/sync-clicks.mjs",
-    "publish-clicks": "node dev/sync-clicks.mjs && node dev/deploy.mjs \"Refresh banner click snapshot\""
+    "publish-clicks": "node dev/sync-clicks.mjs && node dev/deploy.mjs --only=clicks-snapshot.json \"Refresh banner click snapshot\""
   }
 }

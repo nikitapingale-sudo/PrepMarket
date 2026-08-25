@@ -18,7 +18,16 @@ import { dirname, join } from "node:path";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const args = process.argv.slice(2);
 const WATCH = args.includes("--watch");
-const message = args.filter((a) => a !== "--watch").join(" ").trim();
+/**
+ * --only=<path> stages just that file. The 3-hourly click sync runs unattended,
+ * and a blanket `git add -A` would publish whatever half-finished edits happen
+ * to be in the folder at the time.
+ */
+const onlyArg = args.find((a) => a.startsWith("--only="));
+const ONLY = onlyArg ? onlyArg.slice("--only=".length) : null;
+const message = args
+  .filter((a) => a !== "--watch" && !a.startsWith("--only="))
+  .join(" ").trim();
 
 const sh = (cmd) => execSync(cmd, { cwd: ROOT, encoding: "utf8", stdio: "pipe" }).trim();
 
@@ -31,7 +40,7 @@ function stamp() {
 function publish(msg) {
   let changed;
   try {
-    changed = sh("git status --porcelain");
+    changed = sh(ONLY ? `git status --porcelain -- "${ONLY}"` : "git status --porcelain");
   } catch (e) {
     console.error("  Not a git repository, or git is unavailable.");
     return false;
@@ -39,7 +48,7 @@ function publish(msg) {
 
   if (changed) {
     // -F - keeps the message safe even if it contains quotes or newlines
-    execFileSync("git", ["add", "-A"], { cwd: ROOT, stdio: "inherit" });
+    execFileSync("git", ONLY ? ["add", "--", ONLY] : ["add", "-A"], { cwd: ROOT, stdio: "inherit" });
     execFileSync("git", ["commit", "-q", "-F", "-"], {
       cwd: ROOT,
       input: msg || `Update dashboard (${stamp()})`,
