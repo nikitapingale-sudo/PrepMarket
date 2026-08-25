@@ -503,6 +503,11 @@
       <div class="kpis" id="clkKpis"></div>
 
       <div class="card">
+        <h2>Insights &amp; observations <span class="tag">generated from the current date range</span></h2>
+        <div class="insights" id="clkInsights"></div>
+      </div>
+
+      <div class="card">
         <h2>Clicks by day <span class="tag" id="clkRangeTag"></span> <span id="clkSource"></span></h2>
         <div class="chartbox sm"><canvas id="clkTrendChart"></canvas></div>
       </div>
@@ -1612,6 +1617,8 @@ function renderClicks(days){
       a1:'var(--pink)',a2:'var(--violet)',gl:'rgba(244,114,182,.25)',d:''}
   ]);
 
+  drawClickInsights({C:C,days:days,byDay:byDay,dests:dests,srcs:srcs,total:total,
+    users:users,visitors:visitors,du:du,dv:dv,series:series,best:best,bestDay:bestDay});
   drawClkTrend(days,byDay);
 
   var urlCols=function(label){
@@ -1658,6 +1665,103 @@ function renderClicks(days){
     daily.sort(function(a,b){return a.day<b.day?1:-1;}),
     'No clicks in this range.',
     {name:'Clicks Daily Summary',pageSize:20,pager:'pgClkDaily',totals:1});
+}
+
+/**
+ * Observations about banner traffic. These answer different questions from the
+ * order insights - concentration, reach, repeat behaviour and how much of the
+ * audience is logged out - so the logic is separate rather than shared.
+ */
+function drawClickInsights(s){
+  var out=[];
+  function add(ic,c,html){out.push({ic:ic,c:c,html:html});}
+  var host=el('clkInsights');if(!host)return;
+  if(!s.total){host.innerHTML='<div class="ins"><span class="tx">No clicks in this range.</span></div>';return;}
+
+  /* --- momentum: second half of the window vs the first --- */
+  var live=s.days.filter(function(d){return s.byDay[d]>0;});
+  if(live.length>=4){
+    var half=Math.floor(live.length/2);
+    var older=live.slice(0,half).reduce(function(a,d){return a+s.byDay[d];},0)/half;
+    var newer=live.slice(live.length-half).reduce(function(a,d){return a+s.byDay[d];},0)/half;
+    var g=older?(newer-older)/older*100:0;
+    add(g>=0?'\u{1F4C8}':'\u{1F4C9}',g>=0?'var(--green)':'var(--red)',
+      'Traffic is <b>'+(g>=0?'up':'down')+' '+Math.abs(g).toFixed(0)+'%</b> in the most recent '+
+      half+' days ('+fmtN(Math.round(newer))+'/day) versus the '+half+' before ('+
+      fmtN(Math.round(older))+'/day).');
+  }
+
+  /* --- where the traffic goes --- */
+  if(s.dests.length){
+    var d0=s.dests[0];
+    add('\u{1F3AF}',d0.share>50?'var(--amber)':'var(--cyan)',
+      '<b>'+d0.share.toFixed(1)+'%</b> of all clicks land on <b>'+esc(shortUrl(d0.key))+'</b>'+
+      (d0.share>50?' — the banner programme is effectively a single-destination funnel.'
+                  :', across '+s.dests.length+' destinations.'));
+    var weak=s.dests.filter(function(x){return x.share<1;});
+    if(weak.length)add('\u{1F50D}','var(--mute)',
+      '<b>'+weak.length+' destination'+(weak.length>1?'s':'')+'</b> '+
+      (weak.length>1?'attract':'attracts')+' under 1% of clicks each ('+
+      esc(weak.map(function(x){return shortUrl(x.key).split('/').pop();}).slice(0,3).join(', '))+
+      ') — worth reviewing banner placement or creative.');
+  }
+
+  /* --- where it comes from, and how concentrated --- */
+  if(s.srcs.length){
+    var s0=s.srcs[0];
+    add('\u{1F517}',s0.share>60?'var(--amber)':'var(--blue)',
+      '<b>'+esc(shortUrl(s0.key))+'</b> alone drives <b>'+s0.share.toFixed(1)+'%</b> of clicks'+
+      (s0.share>60?' — heavy reliance on one page; a layout change there would move the whole number.':'.'));
+    var run=0,n=0;
+    for(var i=0;i<s.srcs.length;i++){run+=s.srcs[i].clicks;n++;if(run/s.total>=0.8)break;}
+    add('\u{1F4CA}','var(--violet)',
+      '<b>'+n+' of '+s.srcs.length+'</b> source pages generate 80% of all clicks — the rest is a long tail.');
+  }
+
+  /* --- rhythm --- */
+  var dw={},dc={};
+  s.days.forEach(function(d){
+    if(!s.byDay[d])return;
+    var k=DOW[dowOf(d)];dw[k]=(dw[k]||0)+s.byDay[d];dc[k]=(dc[k]||0)+1;});
+  /* Only claim a weekday pattern when each weekday has been seen more than
+     once - otherwise "strongest weekday" is just restating the peak day. */
+  var repeated=Object.keys(dw).filter(function(k){return dc[k]>1;});
+  var bestDow=null,bv=-1;
+  repeated.forEach(function(k){var avg=dw[k]/dc[k];if(avg>bv){bv=avg;bestDow=k;}});
+  if(bestDow)add('\u{1F4C5}','var(--violet)',
+    '<b>'+bestDow+'</b> is the strongest weekday, averaging <b>'+fmtN(Math.round(bv))+
+    '</b> clicks across '+dc[bestDow]+' occurrences.');
+  if(s.bestDay)add('\u{1F3C6}','var(--amber)',
+    'Peak day was <b>'+fmtDay(s.bestDay)+'</b> with <b>'+fmtN(s.best)+'</b> clicks.');
+
+  /* --- audience --- */
+  if(s.visitors){
+    var anon=(s.visitors-s.users)/s.visitors*100;
+    add('\u{1F464}',anon>25?'var(--amber)':'var(--green)',
+      '<b>'+anon.toFixed(0)+'%</b> of banner clickers are <b>not signed in</b> ('+
+      fmtN(s.visitors-s.users)+' of '+fmtN(s.visitors)+') — they cannot be attributed to an account.');
+    var cpv=s.total/s.visitors;
+    add('\u{1F504}',cpv>2?'var(--amber)':'var(--cyan)',
+      'Each visitor clicks a banner <b>'+cpv.toFixed(2)+'</b> times a day on average'+
+      (cpv>2?' — repeat clicking suggests people are hunting rather than finding.':'.'));
+
+    /* which destination skews most anonymous - a real audience difference */
+    var skew=s.dests.filter(function(x){return x.visitors>=50;})
+      .map(function(x){return {k:x.key,pc:x.visitors?(x.visitors-x.users)/x.visitors*100:0};})
+      .sort(function(a,b){return b.pc-a.pc;});
+    if(skew.length>1&&skew[0].pc-skew[skew.length-1].pc>8){
+      add('\u{1F9ED}','var(--pink)',
+        '<b>'+esc(shortUrl(skew[0].k).split('/').pop())+'</b> draws the most logged-out traffic ('+
+        skew[0].pc.toFixed(0)+'% anonymous) versus <b>'+
+        esc(shortUrl(skew[skew.length-1].k).split('/').pop())+'</b> at '+
+        skew[skew.length-1].pc.toFixed(0)+'% — different audiences, worth different creative.');
+    }
+  }
+
+  host.innerHTML=out.map(function(i){
+    return '<div class="ins" style="--c:'+i.c+'"><span class="ic">'+i.ic+'</span>'+
+      '<span class="tx">'+i.html+'</span></div>';
+  }).join('');
 }
 
 function drawClkTrend(days,byDay){
