@@ -240,6 +240,9 @@
   .ins .ic{font-size:16px;line-height:1.2}
   .ins .tx{font-size:12.5px;line-height:1.55;color:var(--mute)}
   .ins .tx b{color:var(--txt);font-weight:700}
+  .ins .cat{display:inline-block;font-size:9px;letter-spacing:.12em;font-weight:800;
+    text-transform:uppercase;color:var(--c,var(--cyan));border:1px solid currentColor;
+    border-radius:99px;padding:1px 7px;margin-right:7px;opacity:.75;vertical-align:1px}
 
   /* ---------- heatmap ---------- */
   .heat{display:grid;grid-template-columns:auto repeat(24,1fr);gap:2px;font-size:9.5px;min-width:640px}
@@ -1316,7 +1319,12 @@ function render(){
   el('rangeTag').textContent=F.from===F.to?fmtDay(F.from):fmtDay(days[0])+' → '+fmtDay(days[days.length-1]);
   el('expCount').textContent=fmtN(O.length);
 
-  drawInsights(O,Cc,days,byDay,sRev,rev,pRev,nOrders,cancRate,over7,oos,avgDel);
+  drawInsights({O:O,Cc:Cc,days:days,byDay:byDay,sRev:sRev,span:span,
+    rev:rev,pRev:pRev,nOrders:nOrders,pOrders:pOrders,units:units,items:items,
+    aov:aov,pAov:pAov,cod:cod,cancRate:cancRate,cancVal:cancVal,
+    delivered:delivered,pending:pending,avgShip:avgShip,avgDel:avgDel,
+    agingRows:agingRows,over7:over7,over3:over3,
+    oos:oos,lowStock:lowStock,stockUnits:stockUnits,stockValue:stockValue});
   buildTicker({O:O,days:days,sRev:sRev,rev:rev,pRev:pRev,nOrders:nOrders,units:units,
     aov:aov,cod:cod,cancRate:cancRate,pending:pending,over7:over7.length,oos:oos});
   drawTrend(days,byDay,pFrom,pTo,span);
@@ -1782,74 +1790,171 @@ function drawClkTrend(days,byDay){
 }
 
 /* ---------- auto insights ---------- */
-function drawInsights(O,Cc,days,byDay,sRev,rev,pRev,nOrders,cancRate,over7,oos,avgDel){
+/**
+ * Overview observations across sales, operations, returns and inventory.
+ * Each is only emitted when the data actually supports it - an insight panel
+ * that invents patterns from one data point is worse than no panel.
+ */
+function drawInsights(s){
   var out=[];
-  function add(ic,c,html){out.push({ic:ic,c:c,html:html});}
+  function add(cat,ic,c,html){out.push({cat:cat,ic:ic,c:c,html:html});}
+  var O=s.O,Cc=s.Cc;
 
-  if(F.preset!=='all'&&pRev>0){
-    var g=(rev-pRev)/pRev*100;
-    add(g>=0?'\u{1F4C8}':'\u{1F4C9}',g>=0?'var(--green)':'var(--red)',
+  /* ---------------- SALES ---------------- */
+  if(F.preset!=='all'&&s.pRev>0){
+    var g=(s.rev-s.pRev)/s.pRev*100;
+    add('Sales',g>=0?'\u{1F4C8}':'\u{1F4C9}',g>=0?'var(--green)':'var(--red)',
       'Revenue is <b>'+(g>=0?'up':'down')+' '+Math.abs(g).toFixed(1)+'%</b> versus the previous '+
-      days.length+' days ('+fmtK(rev)+' vs '+fmtK(pRev)+').');
+      s.days.length+' days ('+fmtK(s.rev)+' vs '+fmtK(s.pRev)+').');
   }
-  if(sRev.length){
-    var bi=sRev.indexOf(Math.max.apply(null,sRev));
-    var avg=sRev.reduce(function(a,b){return a+b;},0)/sRev.length;
-    add('\u{1F3C6}','var(--amber)','Best day was <b>'+fmtDay(days[bi])+'</b> at <b>'+fmtK(sRev[bi])+
-      '</b>, '+(avg?((sRev[bi]/avg-1)*100).toFixed(0):'0')+'% above the daily average.');
+  if(F.preset!=='all'&&s.pAov>0&&s.aov>0){
+    var ag=(s.aov-s.pAov)/s.pAov*100;
+    if(Math.abs(ag)>=2)add('Sales',ag>=0?'\u{1F4B9}':'\u{1F4C9}',ag>=0?'var(--green)':'var(--amber)',
+      'Average order value is <b>'+(ag>=0?'up':'down')+' '+Math.abs(ag).toFixed(1)+'%</b> at <b>'+
+      fmtINR(s.aov)+'</b> (was '+fmtINR(s.pAov)+')'+
+      (ag<0?' — smaller baskets, not just fewer orders.':'.'));
   }
-  var dowRev={};
+  if(s.sRev.length){
+    var bi=s.sRev.indexOf(Math.max.apply(null,s.sRev));
+    var avg=s.sRev.reduce(function(a,b){return a+b;},0)/s.sRev.length;
+    add('Sales','\u{1F3C6}','var(--amber)','Best day was <b>'+fmtDay(s.days[bi])+'</b> at <b>'+
+      fmtK(s.sRev[bi])+'</b>, '+(avg?((s.sRev[bi]/avg-1)*100).toFixed(0):'0')+
+      '% above the daily average.');
+  }
+  /* weekday pattern only when weekdays actually repeat in the window */
+  var dowRev={},dowN={};
   O.forEach(function(r){var d=DOW[dowOf(r.day)];dowRev[d]=(dowRev[d]||0)+r.price;});
+  s.days.forEach(function(d){var k=DOW[dowOf(d)];dowN[k]=(dowN[k]||0)+1;});
   var bestDow=null,bv=-1;
-  Object.keys(dowRev).forEach(function(k){if(dowRev[k]>bv){bv=dowRev[k];bestDow=k;}});
-  if(bestDow)add('\u{1F4C5}','var(--violet)','<b>'+bestDow+'</b> is the strongest weekday overall at <b>'+
-    fmtK(bv)+'</b> in this window — worth timing pushes around it.');
+  Object.keys(dowRev).forEach(function(k){
+    if(dowN[k]>1&&dowRev[k]/dowN[k]>bv){bv=dowRev[k]/dowN[k];bestDow=k;}});
+  if(bestDow)add('Sales','\u{1F4C5}','var(--violet)','<b>'+bestDow+'</b> is the strongest weekday, '+
+    'averaging <b>'+fmtK(bv)+'</b> across '+dowN[bestDow]+' occurrences.');
 
   var st=topName(O,function(r){return r.state;}), stShare=topShare(O,function(r){return r.state;});
-  if(st!=='—')add('\u{1F4CD}','var(--cyan)','<b>'+esc(st)+'</b> drives <b>'+stShare.toFixed(1)+
-    '%</b> of revenue'+(stShare>40?' — concentration risk, worth diversifying.':'.'));
-
-  var ch=topName(O,function(r){return r.channel;});
-  if(ch!=='—')add('\u{1F6D2}','var(--blue)','<b>'+esc(ch)+'</b> is the leading channel at <b>'+
-    topShare(O,function(r){return r.channel;}).toFixed(1)+'%</b> of revenue.');
+  if(st!=='—')add('Sales','\u{1F4CD}',stShare>40?'var(--amber)':'var(--cyan)',
+    '<b>'+esc(st)+'</b> drives <b>'+stShare.toFixed(1)+'%</b> of revenue across '+
+    uniq(O,function(r){return r.state;})+' states'+
+    (stShare>40?' — concentration risk, worth diversifying.':'.'));
 
   var prod=topName(O,function(r){return r.product;});
-  if(prod!=='—')add('\u{1F4DA}','var(--green)','Best seller is <b>'+esc(prod)+'</b> at <b>'+
+  if(prod!=='—')add('Sales','\u{1F4DA}','var(--green)','Best seller is <b>'+esc(prod)+'</b> at <b>'+
     topShare(O,function(r){return r.product;}).toFixed(1)+'%</b> of revenue.');
 
+  /* how much of revenue rests on a handful of products */
+  var byProd=groupBy(O,function(r){return r.pid;},function(r){return r.product;});
+  if(byProd.length>3){
+    var top3=byProd.slice(0,3).reduce(function(a,r){return a+r.share;},0);
+    add('Sales','\u{1F4CA}',top3>70?'var(--amber)':'var(--violet)',
+      'Top 3 products account for <b>'+top3.toFixed(0)+'%</b> of revenue out of '+byProd.length+
+      ' selling'+(top3>70?' — a narrow base.':'.'));
+  }
+
+  /* COD vs prepaid: share, and whether prepaid baskets are bigger */
+  var codOrders=O.filter(function(r){return /cod|cash/i.test(r.pay);});
+  var preOrders=O.filter(function(r){return !/cod|cash/i.test(r.pay);});
+  var codShare=s.nOrders?uniq(codOrders,function(r){return r.ref;})/s.nOrders*100:0;
+  if(s.nOrders)add('Sales','\u{1F4B3}',codShare>65?'var(--amber)':'var(--cyan)',
+    'COD is <b>'+codShare.toFixed(1)+'%</b> of orders'+
+    (codShare>65?' — high RTO exposure; a prepaid nudge would help.':'.'));
+  if(codOrders.length&&preOrders.length){
+    var codA=sum(codOrders,function(r){return r.price;})/uniq(codOrders,function(r){return r.ref;});
+    var preA=sum(preOrders,function(r){return r.price;})/uniq(preOrders,function(r){return r.ref;});
+    if(Math.abs(preA-codA)/Math.max(codA,preA)>0.08)
+      add('Sales','\u{1F9FE}','var(--blue)','Prepaid baskets average <b>'+fmtINR(preA)+
+        '</b> versus <b>'+fmtINR(codA)+'</b> on COD — '+
+        (preA>codA?'prepaid customers spend more.':'COD customers spend more.'));
+  }
+  if(s.items>s.units)add('Sales','\u{1F381}','var(--pink)',
+    '<b>'+fmtN(s.items-s.units)+' extra items</b> shipped inside combos ('+fmtN(s.units)+
+    ' units → '+fmtN(s.items)+' items) — bundles are lifting pack-out volume.');
+
+  /* ---------------- OPERATIONS ---------------- */
   if(Cc.length){
     var rm={};Cc.forEach(function(r){rm[r.reason]=(rm[r.reason]||0)+1;});
     var br=null,brv=-1;Object.keys(rm).forEach(function(k){if(rm[k]>brv){brv=rm[k];br=k;}});
-    add('⚠','var(--red)','Cancellation rate is <b>'+pct(cancRate)+'</b>; the top reason is <b>'+
-      esc(br)+'</b> ('+brv+' of '+Cc.length+', '+(brv/Cc.length*100).toFixed(0)+'%).');
+    add('Operations','⚠',s.cancRate>8?'var(--red)':'var(--amber)',
+      'Cancellation rate is <b>'+pct(s.cancRate)+'</b>; top reason <b>'+esc(br)+'</b> ('+
+      brv+' of '+Cc.length+', '+(brv/Cc.length*100).toFixed(0)+'%).');
+    if(s.cancVal>0)add('Operations','\u{1F4B8}','var(--red)',
+      '<b>'+fmtK(s.cancVal)+'</b> of order value was cancelled'+
+      (s.rev?' — equal to '+(s.cancVal/s.rev*100).toFixed(0)+'% of revenue booked.':'.'));
+    var bm={};Cc.forEach(function(r){bm[r.by]=(bm[r.by]||0)+1;});
+    var bb=null,bbv=-1;Object.keys(bm).forEach(function(k){if(bm[k]>bbv){bbv=bm[k];bb=k;}});
+    if(bb)add('Operations','\u{1F464}','var(--amber)','<b>'+(bbv/Cc.length*100).toFixed(0)+
+      '%</b> of cancellations were raised by <b>'+esc(bb)+'</b>.');
   }else{
-    add('✅','var(--green)','<b>No cancellations</b> recorded in this window.');
+    add('Operations','✅','var(--green)','<b>No cancellations</b> recorded in this window.');
   }
 
-  if(over7.length)add('\u{1F551}','var(--red)','<b>'+over7.length+' orders</b> have been open for more than 7 days'+
-    ' — worth a same-day escalation to the warehouse.');
-  else add('✅','var(--green)','No order has been sitting open longer than 7 days.');
+  var backlog=s.agingRows.length;
+  if(backlog){
+    var bval=sum(s.agingRows,function(r){return r.value;});
+    add('Operations','\u{1F4E6}','var(--blue)','<b>'+fmtN(backlog)+' orders</b> are still open, '+
+      'holding <b>'+fmtK(bval)+'</b> of revenue waiting to ship.');
+    /* backlog measured against how fast orders are actually going out */
+    var perDay=s.span?s.nOrders/s.span:0;
+    if(perDay>0.5)add('Operations','⏱',backlog/perDay>3?'var(--amber)':'var(--green)',
+      'At the current rate of <b>'+perDay.toFixed(1)+' orders/day</b>, that backlog is about <b>'+
+      (backlog/perDay).toFixed(1)+' days</b> of work.');
+  }
+  if(s.over7.length)add('Operations','\u{1F551}','var(--red)','<b>'+s.over7.length+' orders</b> '+
+    'have been open more than 7 days — worth a same-day escalation to the warehouse.');
+  else if(s.over3.length)add('Operations','⏳','var(--amber)','<b>'+s.over3.length+' orders</b> '+
+    'are past 3 days but none beyond 7.');
+  else add('Operations','✅','var(--green)','No order has been open longer than 3 days.');
 
-  if(oos)add('\u{1F4E6}','var(--red)','<b>'+oos+' SKUs</b> are fully out of stock and cannot be sold right now.');
+  if(s.avgDel!=null)add('Operations','\u{1F69A}','var(--blue)',
+    'Order-to-delivery averages <b>'+s.avgDel.toFixed(1)+' days</b>'+
+    (s.avgShip!=null?', with dispatch in '+s.avgShip.toFixed(1)+' days.':'.'));
 
+  /* ---------------- RETURNS ---------------- */
   var R=returnsIn(F.from,F.to);
   if(R.length){
     var rOver7=R.filter(function(r){var a=retAge(r);return a!=null&&a>7;}).length;
-    add('\u{1F504}','var(--amber)','<b>'+R.length+' return'+(R.length>1?'s':'')+'</b> pending'+
-      (nOrders?' ('+(R.length/nOrders*100).toFixed(1)+'% of orders)':'')+
+    var rVal=sum(R,function(r){return r.value;});
+    add('Returns','\u{1F504}',rOver7?'var(--red)':'var(--amber)',
+      '<b>'+R.length+' return'+(R.length>1?'s':'')+'</b> pending'+
+      (s.nOrders?' ('+(R.length/s.nOrders*100).toFixed(1)+'% of orders)':'')+
+      (rVal?', worth '+fmtK(rVal):'')+
       (rOver7?' — <b>'+rOver7+'</b> outstanding over 7 days.':'.'));
+    var notIn=R.filter(function(r){return !r.gateDay;}).length;
+    if(notIn)add('Returns','\u{1F4E5}','var(--amber)','<b>'+notIn+'</b> returned parcel'+
+      (notIn>1?'s have':' has')+' not been gate-entered at the warehouse — stock in limbo.');
   }
 
-  var codShare=nOrders?uniq(O.filter(function(r){return /cod|cash/i.test(r.pay);}),
-    function(r){return r.ref;})/nOrders*100:0;
-  if(nOrders)add('\u{1F4B3}','var(--amber)','COD is <b>'+codShare.toFixed(1)+'%</b> of orders'+
-    (codShare>65?' — high RTO exposure; a prepaid nudge would help.':'.'));
+  /* ---------------- INVENTORY ---------------- */
+  if(DATA.stock.length){
+    if(s.oos)add('Inventory','\u{1F6D1}','var(--red)','<b>'+s.oos+' SKUs</b> are fully out of stock '+
+      'and cannot be sold right now.');
+    if(s.lowStock-s.oos>0)add('Inventory','\u{1F4C9}','var(--amber)','<b>'+(s.lowStock-s.oos)+
+      ' SKUs</b> are down to 1–19 units.');
 
-  if(avgDel!=null)add('\u{1F69A}','var(--blue)','Average order-to-delivery time is <b>'+avgDel.toFixed(1)+
-    ' days</b> for orders placed in this window.');
+    var sr=stockRows(O,s.span);
+    /* the ones that actually matter: selling fast AND nearly gone */
+    var risk=sr.filter(function(r){return r.velocity>0&&r.cover!=null&&r.cover<=7;})
+      .sort(function(a,b){return a.cover-b.cover;});
+    if(risk.length)add('Inventory','\u{1F525}','var(--red)','<b>'+risk.length+' fast-moving SKU'+
+      (risk.length>1?'s':'')+'</b> will run out within 7 days at the current rate — '+
+      esc(risk.slice(0,2).map(function(r){return r.product+' ('+r.cover+'d)';}).join(', '))+'.');
+
+    var dead=sr.filter(function(r){return r.available>20&&r.velocity===0;});
+    if(dead.length)add('Inventory','\u{1F4A4}','var(--mute)','<b>'+dead.length+' SKUs</b> hold stock '+
+      'but sold nothing in this window'+
+      (sum(dead,function(r){return r.value;})?' — '+fmtK(sum(dead,function(r){return r.value;}))+
+      ' of capital sitting idle.':'.'));
+
+    var incoming=sum(DATA.stock,function(r){return r.toReceive;});
+    if(incoming)add('Inventory','\u{1F69B}','var(--cyan)','<b>'+fmtN(incoming)+' units</b> are inbound '+
+      'against '+fmtN(s.stockUnits)+' on hand.');
+    var damaged=sum(DATA.stock,function(r){return r.damaged;});
+    if(damaged)add('Inventory','\u{1F4A5}','var(--amber)','<b>'+fmtN(damaged)+' units</b> are marked '+
+      'damaged in the warehouse.');
+  }
 
   el('insights').innerHTML=out.map(function(i){
-    return '<div class="ins" style="--c:'+i.c+'"><span class="ic">'+i.ic+'</span><span class="tx">'+i.html+'</span></div>';
+    return '<div class="ins" style="--c:'+i.c+'"><span class="ic">'+i.ic+'</span>'+
+      '<span class="tx"><span class="cat">'+i.cat+'</span>'+i.html+'</span></div>';
   }).join('');
 }
 
