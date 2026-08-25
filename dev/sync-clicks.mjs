@@ -32,7 +32,8 @@ for (const name of [".env.local", ".env"]) {
   } catch { /* file is optional */ }
 }
 
-const { trinoConfigured, trinoQuery, bannerClicksSql } = await import("../api/trino.js");
+const { trinoConfigured, trinoQuery, bannerClicksSql, bannerUsersByDaySql } =
+  await import("../api/trino.js");
 
 if (!trinoConfigured()) {
   console.error("\n  TRINO_URL / TRINO_USER are not set in .env.local — cannot query.\n");
@@ -42,9 +43,12 @@ if (!trinoConfigured()) {
 const days = Number(process.env.CLICKS_DAYS) || 90;
 console.log(`\n  Querying Trino for the last ${days} days...`);
 
-let rows;
+let rows, userRows;
 try {
-  rows = await trinoQuery(bannerClicksSql(days), { timeoutMs: 120000 });
+  [rows, userRows] = await Promise.all([
+    trinoQuery(bannerClicksSql(days), { timeoutMs: 120000 }),
+    trinoQuery(bannerUsersByDaySql(days), { timeoutMs: 120000 }),
+  ]);
 } catch (e) {
   console.error("\n  Query failed: " + e.message);
   console.error("  Are you on the corporate network / VPN?\n");
@@ -61,10 +65,19 @@ for (const r of rows) {
     src: String(r.page_location || ""),
     dest: String(r.redirection_url || ""),
     clicks: Number(r.total_clicks) || 0,
+    users: Number(r.distinct_users) || 0,
   });
 }
 
+/* distinct users per day - kept separate because distinct counts don't add up */
+const dailyUsers = {};
+for (const r of userRows || []) {
+  const d = String(r.event_date || "").slice(0, 10);
+  if (d) dailyUsers[d] = Number(r.distinct_users) || 0;
+}
+
 const total = clicks.reduce((a, c) => a + c.clicks, 0);
+const userTotal = Object.values(dailyUsers).reduce((a, n) => a + n, 0);
 const dates = clicks.map((c) => c.day).sort();
 
 const snapshot = {
@@ -79,12 +92,14 @@ const snapshot = {
   from: dates[0] || null,
   to: dates[dates.length - 1] || null,
   rows: clicks,
+  dailyUsers,
 };
 
 writeFileSync(OUT, JSON.stringify(snapshot, null, 0));
 
 console.log(`  rows        : ${clicks.length}`);
 console.log(`  total clicks: ${total.toLocaleString("en-IN")}`);
+console.log(`  daily users : ${userTotal.toLocaleString("en-IN")} (summed across ${Object.keys(dailyUsers).length} days)`);
 console.log(`  range       : ${snapshot.from} -> ${snapshot.to}`);
 console.log(`  written     : clicks-snapshot.json`);
 console.log(`\n  Now run "npm run deploy" to publish it (or use "npm run publish-clicks").\n`);

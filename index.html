@@ -781,6 +781,7 @@ function withClickSnapshot(d){
     .then(function(s){
       if(s&&s.rows&&s.rows.length){
         d.clicks=s.rows;
+        d.clicksDailyUsers=s.dailyUsers||{};
         d.clicksSource='snapshot';
         d.clicksSnapshotAt=s.generatedAt;
         d.clicksError=null;
@@ -1555,27 +1556,41 @@ function renderClicks(days){
   var best=series.length?Math.max.apply(null,series):0;
   var bestDay=series.length?days[series.indexOf(best)]:null;
 
+  /* users here is the sum of per-row distinct counts, so it over-states when one
+     person clicks several banners. Shown as an indicative figure, never totalled. */
   function tally(keyF){
     var m={};
-    C.forEach(function(r){var k=keyF(r)||'(none)';m[k]=(m[k]||0)+r.clicks;});
-    return Object.keys(m).map(function(k){return {key:k,clicks:m[k],
-      share:total?m[k]/total*100:0};}).sort(function(a,b){return b.clicks-a.clicks;});
+    C.forEach(function(r){
+      var k=keyF(r)||'(none)';
+      m[k]=m[k]||{clicks:0,users:0};
+      m[k].clicks+=r.clicks;m[k].users+=(r.users||0);});
+    return Object.keys(m).map(function(k){return {key:k,clicks:m[k].clicks,users:m[k].users,
+      share:total?m[k].clicks/total*100:0};}).sort(function(a,b){return b.clicks-a.clicks;});
   }
   var dests=tally(function(r){return r.dest;});
   var srcs=tally(function(r){return r.src;});
 
+  /* Distinct users per day is exact; summing across days counts a returning
+     visitor once per day they came back. Labelled so it is not misread. */
+  var du=DATA.clicksDailyUsers||{};
+  var users=days.reduce(function(a,d){return a+(du[d]||0);},0);
+  var userDays=days.filter(function(d){return du[d];}).length;
+
   paintKpis('clkKpis',[
     {lab:'Total Clicks',v:total,f:fmtN,sub:fmtN(C.length)+' source→destination pairs',
       a1:'var(--cyan)',a2:'var(--violet)',gl:'var(--glow-cyan)',d:'',sp:series,spc:cssVar('--cyan')},
+    {lab:'Distinct Users',v:users,f:fmtN,
+      sub:userDays>1?'daily uniques, summed over '+userDays+' days':'signed-in users',
+      a1:'var(--green)',a2:'var(--cyan)',gl:'rgba(52,211,153,.3)',d:'',
+      sp:days.map(function(d){return du[d]||0;}),spc:cssVar('--green')},
+    {lab:'Clicks / User',v:users?total/users:0,f:function(n){return n.toFixed(2);},
+      sub:'banner clicks per user per day',
+      a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:''},
     {lab:'Clicks / Day',v:activeDays?total/activeDays:0,f:function(n){return n.toFixed(1);},
       sub:'across '+activeDays+' active day'+(activeDays===1?'':'s'),
-      a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:''},
+      a1:'var(--blue)',a2:'var(--cyan)',gl:'rgba(96,165,250,.25)',d:''},
     {lab:'Best Day',v:best,f:fmtN,sub:bestDay?fmtDay(bestDay):'—',
       a1:'var(--amber)',a2:'var(--green)',gl:'rgba(251,191,36,.25)',d:''},
-    {lab:'Destinations',v:dests.length,f:fmtN,sub:'distinct landing pages',
-      a1:'var(--green)',a2:'var(--cyan)',gl:'rgba(52,211,153,.3)',d:''},
-    {lab:'Source Pages',v:srcs.length,f:fmtN,sub:'pages carrying the banner',
-      a1:'var(--blue)',a2:'var(--violet)',gl:'rgba(96,165,250,.25)',d:''},
     {lab:'Top Destination',v:dests.length?dests[0].share:0,
       f:function(n){return n.toFixed(1)+'%';},
       sub:dests.length?shortUrl(dests[0].key):'—',
@@ -1587,6 +1602,7 @@ function renderClicks(days){
   var urlCols=function(label){
     return [{k:'key',label:label,fmt:urlCell,xl:function(v){return v;}},
             {k:'clicks',label:'Clicks',r:1,bar:1},
+            {k:'users',label:'Users',r:1,noTotal:1},
             Object.assign({k:'share',label:'% of Clicks'},C_SHARE)];
   };
   renderTable('tblClkDest',urlCols('Destination URL'),dests,
@@ -1598,7 +1614,8 @@ function renderClicks(days){
     [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v||'';}},
      {k:'src',label:'Source Page',fmt:urlCell,xl:function(v){return v;}},
      {k:'dest',label:'Destination URL',fmt:urlCell,xl:function(v){return v;}},
-     {k:'clicks',label:'Clicks',r:1}],
+     {k:'clicks',label:'Clicks',r:1},
+     {k:'users',label:'Users',r:1,noTotal:1}],
     C.slice().sort(function(a,b){return b.clicks-a.clicks;}),
     'No clicks in this range.',
     {name:'Click Detail',pageSize:25,pager:'pgClicks',totals:1});
@@ -1607,12 +1624,17 @@ function renderClicks(days){
     var rows=C.filter(function(r){return r.day===d;});
     var ds={};rows.forEach(function(r){ds[r.dest]=1;});
     return {day:d,dow:DOW[dowOf(d)],clicks:byDay[d],dests:Object.keys(ds).length,
+      users:du[d]||0,
+      perUser:du[d]?byDay[d]/du[d]:0,
       share:total?byDay[d]/total*100:0};});
   renderTable('tblClkDaily',
     [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
      {k:'dow',label:'Day'},
      {k:'clicks',label:'Clicks',r:1,bar:1},
-     {k:'dests',label:'Destinations',r:1},
+     {k:'users',label:'Users',r:1},
+     {k:'perUser',label:'Clicks/User',r:1,fmt:function(v){return v?v.toFixed(2):'—';},
+      xl:function(v){return +(v||0).toFixed(2);},noTotal:1},
+     {k:'dests',label:'Destinations',r:1,noTotal:1},
      Object.assign({k:'share',label:'% of Clicks'},C_SHARE)],
     daily.sort(function(a,b){return a.day<b.day?1:-1;}),
     'No clicks in this range.',
@@ -2063,6 +2085,9 @@ function renderTable(elmId,cols,data,emptyMsg,opts){
     h+='<tfoot><tr>'+cols.map(function(c,i){
       if(i===0)return '<td class="num">Total</td>';
       if(c.pct)return '<td class="num r">100.0%</td>';
+      /* distinct counts are not additive - summing them would count one person
+         once per row they appear in */
+      if(c.noTotal)return '<td class="num r" title="Distinct counts cannot be added up">—</td>';
       var numeric=rows.some(function(r){return typeof r[c.k]==='number';});
       if(!numeric)return '<td></td>';
       var s=rows.reduce(function(a,r){return a+(r[c.k]||0);},0);

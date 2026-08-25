@@ -126,6 +126,10 @@ export async function trinoQuery(sql, { timeoutMs = DEFAULT_BUDGET_MS } = {}) {
   });
 }
 
+const WHERE = (days) => `
+WHERE event_datetime >= current_timestamp - INTERVAL '${Number(days) || 90}' DAY
+  AND lower(element_at(event_params, 'redirection_url').string_value) LIKE 'https://prepmarket.live/%'`;
+
 /** Their banner-click query, with a rolling window so it stays current. */
 export function bannerClicksSql(days = 90) {
   return `
@@ -133,10 +137,25 @@ SELECT
     date(event_datetime)                                     AS event_date,
     element_at(event_params, 'page_location').string_value   AS page_location,
     element_at(event_params, 'redirection_url').string_value AS redirection_url,
-    count(*)                                                 AS total_clicks
-FROM pw_bq.silver_dbt_category_banner_click
-WHERE event_datetime >= current_timestamp - INTERVAL '${Number(days) || 90}' DAY
-  AND lower(element_at(event_params, 'redirection_url').string_value) LIKE 'https://prepmarket.live/%'
+    count(*)                                                 AS total_clicks,
+    count(distinct user_id)                                  AS distinct_users
+FROM pw_bq.silver_dbt_category_banner_click${WHERE(days)}
 GROUP BY 1, 2, 3
 ORDER BY 1 DESC, 4 DESC`.trim();
+}
+
+/**
+ * Distinct users per DAY, queried separately because distinct counts cannot be
+ * added up. Summing the per-row user counts from the query above would count
+ * one person once per banner they clicked. This gives an accurate figure for
+ * each day, which the dashboard sums with that caveat stated on screen.
+ */
+export function bannerUsersByDaySql(days = 90) {
+  return `
+SELECT
+    date(event_datetime)    AS event_date,
+    count(distinct user_id) AS distinct_users
+FROM pw_bq.silver_dbt_category_banner_click${WHERE(days)}
+GROUP BY 1
+ORDER BY 1 DESC`.trim();
 }

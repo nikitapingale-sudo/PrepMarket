@@ -7,7 +7,7 @@
  * (otherwise Google returns an HTML login page instead of data).
  */
 
-import { trinoConfigured, trinoQuery, bannerClicksSql } from "./trino.js";
+import { trinoConfigured, trinoQuery, bannerClicksSql, bannerUsersByDaySql } from "./trino.js";
 
 /**
  * The Sheet ID is a secret in practice: the Sheet is shared "anyone with the
@@ -371,8 +371,10 @@ function normalizeClicks(raw) {
     const dest = strip(pick(o, ["redirection_url", "Redirection URL", "destination_url"]));
     const src = strip(pick(o, ["page_location", "Page Location", "source_url"]));
     const clicks = num(pick(o, ["total_clicks", "Total Clicks", "clicks", "click_count"]));
+    // distinct users for THIS group only - not additive across groups
+    const users = num(pick(o, ["distinct_users", "Distinct Users", "user_id", "users"]));
     if (!day || (!dest && !src)) continue;
-    out.push({ day, src, dest, clicks: clicks || 0 });
+    out.push({ day, src, dest, clicks: clicks || 0, users: users || 0 });
   }
   return out;
 }
@@ -404,8 +406,17 @@ async function loadClicks() {
 async function loadClicksUncached() {
   if (trinoConfigured()) {
     try {
-      const raw = await trinoQuery(bannerClicksSql(Number(process.env.CLICKS_DAYS) || 90));
-      return { rows: normalizeClicks(raw), source: "trino", error: null };
+      const days = Number(process.env.CLICKS_DAYS) || 90;
+      const [raw, userRows] = await Promise.all([
+        trinoQuery(bannerClicksSql(days)),
+        trinoQuery(bannerUsersByDaySql(days)),
+      ]);
+      const dailyUsers = {};
+      for (const r of userRows) {
+        const d = toDayStr(r.event_date);
+        if (d) dailyUsers[d] = num(r.distinct_users);
+      }
+      return { rows: normalizeClicks(raw), dailyUsers, source: "trino", error: null };
     } catch (e) {
       // fall through to the sheet rather than losing the page entirely
       const sheetRows = normalizeClicks(await fetchTab(TABS.clicks).catch(() => []));
@@ -527,6 +538,7 @@ export async function buildPayload() {
   return {
     orders, cancellations, aging, stock, returns,
     clicks: clicksResult.rows,
+    clicksDailyUsers: clicksResult.dailyUsers || {},
     clicksSource: clicksResult.source,
     clicksError: clicksResult.error,
     clicksAgeMin: clicksResult.cachedAgeMs != null
