@@ -598,6 +598,32 @@
         <div class="pager" id="pgFunnel"></div>
       </div>
     </div>
+
+    <!-- ---- marketplace / on-site conversion funnel ---- -->
+    <div id="cnvBody" style="display:none">
+      <div class="card" style="border-color:var(--line2)">
+        <h2>Marketplace funnel <span class="tag">sessions &rarr; cart &rarr; checkout &rarr; order</span> <span id="cnvSource"></span></h2>
+        <div class="overflow"><div class="funnel" id="cnvSteps"></div></div>
+      </div>
+
+      <div class="kpis" id="cnvKpis"></div>
+
+      <div class="card">
+        <h2>Conversion observations</h2>
+        <div class="insights" id="cnvInsights"></div>
+      </div>
+
+      <div class="grid2">
+        <div class="card"><h2>Sessions &amp; orders by day</h2><div class="chartbox sm"><canvas id="cnvTrendChart"></canvas></div></div>
+        <div class="card"><h2>Step conversion by day <span class="tag">%</span></h2><div class="chartbox sm"><canvas id="cnvRateChart"></canvas></div></div>
+      </div>
+
+      <div class="card">
+        <h2>Marketplace funnel, day on day<span class="spacer"></span><button class="xls" data-xls="tblConv">&#8681; EXCEL</button></h2>
+        <div class="overflow" id="tblConv"></div>
+        <div class="pager" id="pgConv"></div>
+      </div>
+    </div>
   </section>
 
   <!-- ================= INVENTORY ================= -->
@@ -816,6 +842,7 @@ function applyData(d){
   DATA.orders=DATA.orders||[];DATA.cancellations=DATA.cancellations||[];
   DATA.aging=DATA.aging||[];DATA.stock=DATA.stock||[];DATA.returns=DATA.returns||[];
   DATA.clicks=DATA.clicks||[];DATA.funnel=DATA.funnel||[];
+  DATA.conversion=DATA.conversion||[];
   EST=DATA.estimated||{};
   el('gen').textContent='synced '+d.generatedAt;
   drawFreshness();
@@ -865,12 +892,34 @@ function withClickSnapshot(d){
     .catch(function(){return d;});
 }
 
+/**
+ * Conversion data comes from a Conversion_Raw sheet tab when one exists, so it
+ * stays user-updatable. Until then the committed CSV export seeds the page -
+ * the source is labelled on screen either way, so a stale seed can't be
+ * mistaken for live data.
+ */
+function withConversionSeed(d){
+  if((d.conversion||[]).length){d.conversionSource='sheet';return Promise.resolve(d);}
+  return fetch('conversion-seed.json',{cache:'no-store'})
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(s){
+      if(s&&s.rows&&s.rows.length){
+        d.conversion=s.rows;
+        d.conversionSource='seed';
+        d.conversionSeedAt=s.generatedAt;
+      }
+      return d;
+    })
+    .catch(function(){return d;});
+}
+
 function load(){
   var btn=el('reload');btn.classList.add('spinning');
   fetch(API_URL,{cache:'no-store'})
     .then(function(r){return r.json().then(function(j){
       if(!r.ok||j.error)throw new Error(j.error||('API error '+r.status));return j;});})
     .then(withClickSnapshot)
+    .then(withConversionSeed)
     .then(function(d){applyData(d);btn.classList.remove('spinning');})
     .catch(function(e){
       btn.classList.remove('spinning');
@@ -1404,6 +1453,7 @@ function render(){
   renderReturns(days,nOrders);
   renderClicks(days);
   renderFunnel(days);
+  renderConversion();
 
   tblTop5(O);
   tblSku(O);tblState(O);tblCity(O);tblChannel(O,Cc);tblCat(O);
@@ -2123,6 +2173,230 @@ function drawFnlCtr(Fn){
           title:{display:true,text:'Widget CTR %'},ticks:{callback:function(v){return v+'%';}}},
         y1:{beginAtZero:true,position:'right',grid:{drawOnChartArea:false},
           title:{display:true,text:'Banner CTR %'},ticks:{callback:function(v){return v+'%';}}},
+        x:{grid:{display:false},ticks:{maxRotation:0,autoSkipPadding:12}}},
+      plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8}},
+        tooltip:Object.assign({},T.tt,{callbacks:{label:function(c){
+          return ' '+c.dataset.label+': '+(c.parsed.y==null?'no data':c.parsed.y.toFixed(2)+'%');}}})}}});
+}
+
+/* ==================== MARKETPLACE CONVERSION FUNNEL ==================== */
+/**
+ * Shopify sessions -> cart -> checkout -> order. Every rate is recomputed from
+ * summed counts for the selected range, never averaged from the export's own
+ * daily conversion-rate column, which would weight a 4-session day the same as
+ * a 2,700-session one.
+ */
+function conversionIn(from,to){
+  return DATA.conversion.filter(function(r){return !r.day||(r.day>=from&&r.day<=to);});
+}
+
+function renderConversion(){
+  var C=conversionIn(F.from,F.to).slice().sort(function(a,b){return a.day<b.day?1:-1;});
+  if(!DATA.conversion.length||!C.length){el('cnvBody').style.display='none';return;}
+  el('cnvBody').style.display='block';
+
+  var sess=sum(C,function(r){return r.sessions;});
+  var atc=sum(C,function(r){return r.atc;});
+  var chk=sum(C,function(r){return r.checkout;});
+  var ord=sum(C,function(r){return r.orders;});
+
+  var srcNode=el('cnvSource');
+  srcNode.className='pill '+(DATA.conversionSource==='sheet'?'green':'amber');
+  srcNode.textContent=DATA.conversionSource==='sheet'
+    ? 'from Conversion_Raw tab'
+    : 'seed export'+(DATA.conversionSeedAt?' · '+DATA.conversionSeedAt:'');
+  srcNode.title=DATA.conversionSource==='sheet'
+    ? 'Live from the Conversion_Raw sheet tab.'
+    : 'From the committed CSV export. Paste fresh data into a Conversion_Raw tab to keep it current.';
+
+  paintKpis('cnvKpis',[
+    {lab:'Sessions',v:sess,f:fmtN,sub:C.length+' days',
+      a1:'var(--cyan)',a2:'var(--violet)',gl:'var(--glow-cyan)',d:'',
+      sp:C.slice().reverse().map(function(r){return r.sessions;}),spc:cssVar('--cyan')},
+    {lab:'Added To Cart',v:atc,f:fmtN,sub:pctCell(rate(atc,sess))+' of sessions',
+      a1:'var(--green)',a2:'var(--cyan)',gl:'rgba(52,211,153,.3)',d:'',
+      sp:C.slice().reverse().map(function(r){return r.atc;}),spc:cssVar('--green')},
+    {lab:'Reached Checkout',v:chk,f:fmtN,sub:pctCell(rate(chk,atc))+' of cart adds',
+      a1:'var(--amber)',a2:'var(--green)',gl:'rgba(251,191,36,.25)',d:'',
+      sp:C.slice().reverse().map(function(r){return r.checkout;}),spc:cssVar('--amber')},
+    {lab:'Orders',v:ord,f:fmtN,sub:pctCell(rate(ord,chk))+' of checkouts',
+      a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:'',
+      sp:C.slice().reverse().map(function(r){return r.orders;}),spc:cssVar('--violet')},
+    {lab:'Conversion Rate',v:rate(ord,sess)||0,
+      f:function(n){return sess?n.toFixed(2)+'%':'—';},sub:'orders per session',
+      a1:'var(--blue)',a2:'var(--green)',gl:'rgba(96,165,250,.25)',d:''},
+    {lab:'Sessions / Order',v:ord?sess/ord:0,f:function(n){return ord?fmtN(n):'—';},
+      sub:'visits needed per sale',
+      a1:'var(--red)',a2:'var(--amber)',gl:'rgba(248,113,113,.25)',d:''}
+  ]);
+
+  el('cnvSteps').innerHTML=
+    '<div class="fstep" style="--fc:'+cssVar('--cyan')+'"><div class="fl">Sessions</div>'+
+      '<div class="fv num">'+fmtN(sess)+'</div><div class="fs">visits to the store</div></div>'+
+    cnvArrow(rate(atc,sess),'added to cart')+
+    '<div class="fstep" style="--fc:'+cssVar('--green')+'"><div class="fl">Cart</div>'+
+      '<div class="fv num">'+fmtN(atc)+'</div><div class="fs">sessions with cart adds</div></div>'+
+    cnvArrow(rate(chk,atc),'to checkout')+
+    '<div class="fstep" style="--fc:'+cssVar('--amber')+'"><div class="fl">Checkout</div>'+
+      '<div class="fv num">'+fmtN(chk)+'</div><div class="fs">reached checkout</div></div>'+
+    cnvArrow(rate(ord,chk),'completed')+
+    '<div class="fstep" style="--fc:'+cssVar('--violet')+'"><div class="fl">Orders</div>'+
+      '<div class="fv num">'+fmtN(ord)+'</div><div class="fs">'+
+      (sess?rate(ord,sess).toFixed(2)+'% of sessions':'')+'</div></div>';
+
+  drawConvInsights(C,{sess:sess,atc:atc,chk:chk,ord:ord});
+  drawCnvTrend(C);drawCnvRate(C);
+
+  renderTable('tblConv',
+    [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
+     {k:'sessions',label:'Sessions',r:1,tot:fmtN},
+     {k:'atc',label:'ATC',r:1,tot:fmtN},
+     {k:'sessAtc',label:'Sess→ATC',r:1,fmt:pctCell,
+      xl:function(v){return v==null?'':+v.toFixed(2);},
+      totalOf:function(rows){var v=rate(sum(rows,function(r){return r.atc;}),
+        sum(rows,function(r){return r.sessions;}));return v==null?'—':v.toFixed(2)+'%';}},
+     {k:'checkout',label:'Checkout',r:1,tot:fmtN},
+     {k:'atcCo',label:'ATC→CO',r:1,fmt:function(v){
+        /* >100% is real: buy-now flows reach checkout without a cart-add event */
+        return v==null?pctCell(v)
+          :v>100?'<span class="tone-amber" title="more checkouts than cart adds — buy-now flow">'+
+                 v.toFixed(1)+'%</span>':v.toFixed(1)+'%';},
+      xl:function(v){return v==null?'':+v.toFixed(2);},
+      totalOf:function(rows){var v=rate(sum(rows,function(r){return r.checkout;}),
+        sum(rows,function(r){return r.atc;}));return v==null?'—':v.toFixed(1)+'%';}},
+     {k:'orders',label:'Orders',r:1,tot:fmtN},
+     {k:'coOrder',label:'CO→Order',r:1,fmt:pctCell,
+      xl:function(v){return v==null?'':+v.toFixed(2);},
+      totalOf:function(rows){var v=rate(sum(rows,function(r){return r.orders;}),
+        sum(rows,function(r){return r.checkout;}));return v==null?'—':v.toFixed(1)+'%';}},
+     {k:'cvr',label:'CVR',r:1,bar:1,fmt:pctCell,
+      xl:function(v){return v==null?'':+v.toFixed(3);},
+      totalOf:function(rows){var v=rate(sum(rows,function(r){return r.orders;}),
+        sum(rows,function(r){return r.sessions;}));return v==null?'—':v.toFixed(2)+'%';}}],
+    C.map(function(r){
+      return Object.assign({},r,{
+        sessAtc:rate(r.atc,r.sessions),
+        atcCo:rate(r.checkout,r.atc),
+        coOrder:rate(r.orders,r.checkout),
+        cvr:rate(r.orders,r.sessions)});}),
+    'No conversion data in this range.',
+    {name:'Marketplace Funnel',totals:1,pageSize:20,pager:'pgConv'});
+}
+
+function cnvArrow(v,cap){
+  return '<div class="farrow"><div class="fpct">'+(v==null?'—':v.toFixed(1)+'%')+'</div>'+
+    '<div class="fbar"></div><div class="fcap">'+cap+'</div></div>';
+}
+
+function drawConvInsights(C,t){
+  var out=[];
+  function add(ic,c,html){out.push({ic:ic,c:c,html:html});}
+  var host=el('cnvInsights');if(!host)return;
+
+  var steps=[
+    {n:'Sessions → cart',v:rate(t.atc,t.sess),lost:t.sess-t.atc},
+    {n:'Cart → checkout',v:rate(t.chk,t.atc),lost:t.atc-t.chk},
+    {n:'Checkout → order',v:rate(t.ord,t.chk),lost:t.chk-t.ord}
+  ].filter(function(x){return x.v!=null;});
+  if(steps.length){
+    var worst=steps.slice().sort(function(a,b){return a.v-b.v;})[0];
+    add('\u{1F573}','var(--red)','The weakest step is <b>'+worst.n+'</b> at <b>'+
+      worst.v.toFixed(1)+'%</b> — <b>'+fmtN(worst.lost)+'</b> drop out there, more than at any '+
+      'other stage. That is where a fix pays the most.');
+  }
+  if(t.sess&&t.ord)add('\u{1F3AF}','var(--blue)','Overall conversion is <b>'+
+    rate(t.ord,t.sess).toFixed(2)+'%</b> — about <b>'+fmtN(Math.round(t.sess/t.ord))+
+    ' sessions per order</b>.');
+  if(t.chk&&t.ord)add('\u{1F6D2}','var(--amber)','<b>'+fmtN(t.chk-t.ord)+'</b> sessions reached '+
+    'checkout but did not order ('+(100-rate(t.ord,t.chk)).toFixed(1)+'% checkout abandonment) — '+
+    'the closest-to-purchase audience to recover.');
+
+  /* traffic scaled hard mid-month; did conversion hold up? */
+  var byDay=C.slice().sort(function(a,b){return a.day<b.day?-1:1;});
+  if(byDay.length>=8){
+    var h=Math.floor(byDay.length/2);
+    var A=byDay.slice(0,h),B=byDay.slice(byDay.length-h);
+    var aS=sum(A,function(r){return r.sessions;}),aO=sum(A,function(r){return r.orders;});
+    var bS=sum(B,function(r){return r.sessions;}),bO=sum(B,function(r){return r.orders;});
+    var aC=rate(aO,aS),bC=rate(bO,bS);
+    if(aC!=null&&bC!=null){
+      var sg=aS?(bS-aS)/aS*100:0;
+      add(bC>=aC?'\u{1F4C8}':'\u{1F4C9}',bC>=aC?'var(--green)':'var(--red)',
+        'Sessions '+(sg>=0?'grew':'fell')+' <b>'+Math.abs(sg).toFixed(0)+'%</b> in the second half ('+
+        fmtN(aS)+' → '+fmtN(bS)+') while conversion went from <b>'+aC.toFixed(2)+'%</b> to <b>'+
+        bC.toFixed(2)+'%</b>'+
+        (sg>50&&bC<aC?' — the new traffic converts far worse than the old.':'.'));
+    }
+  }
+
+  var odd=C.filter(function(r){return r.atc>0&&r.checkout>r.atc;});
+  if(odd.length)add('⚠','var(--amber)','<b>'+odd.length+' day'+(odd.length>1?'s show':' shows')+
+    '</b> more checkouts than cart additions ('+
+    esc(odd.slice(0,4).map(function(r){return fmtDay(r.day);}).join(', '))+
+    ') — expected if buy-now skips the cart, but it makes ATC→CO exceed 100%.');
+
+  var best=C.filter(function(r){return r.sessions>=200;})
+    .map(function(r){return {day:r.day,c:rate(r.orders,r.sessions)};})
+    .filter(function(x){return x.c!=null;}).sort(function(a,b){return b.c-a.c;});
+  if(best.length>2)add('\u{1F4C5}','var(--violet)','On days with real traffic, CVR ranged from <b>'+
+    best[0].c.toFixed(2)+'%</b> ('+fmtDay(best[0].day)+') down to <b>'+
+    best[best.length-1].c.toFixed(2)+'%</b> ('+fmtDay(best[best.length-1].day)+').');
+
+  host.innerHTML=out.map(function(i){
+    return '<div class="ins" style="--c:'+i.c+'"><span class="ic">'+i.ic+'</span>'+
+      '<span class="tx">'+i.html+'</span></div>';
+  }).join('');
+}
+
+function drawCnvTrend(C){
+  var T=chartTheme();
+  var rows=C.slice().sort(function(a,b){return a.day<b.day?-1:1;});
+  killChart('cnvTrendChart');
+  if(!rows.length){chartMsg('cnvTrendChart','&#128202;','No data in this range.');return;}
+  chartMsg('cnvTrendChart',null,null);
+  charts.cnvTrendChart=new Chart(el('cnvTrendChart'),{
+    data:{labels:rows.map(function(r){return fmtDay(r.day);}),datasets:[
+      {type:'bar',label:'Sessions',data:rows.map(function(r){return r.sessions;}),
+        backgroundColor:hexA(cssVar('--cyan'),.75),borderRadius:5,maxBarThickness:22,yAxisID:'y'},
+      {type:'line',label:'Orders',data:rows.map(function(r){return r.orders;}),
+        borderColor:cssVar('--violet'),borderWidth:2.5,cubicInterpolationMode:'monotone',
+        pointRadius:rows.length>30?0:3,fill:false,yAxisID:'y1'}
+    ]},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      animation:{duration:600},
+      scales:{y:{beginAtZero:true,grid:{color:T.grid},title:{display:true,text:'Sessions'},
+          ticks:{callback:function(v){return fmtN(v);}}},
+        y1:{beginAtZero:true,position:'right',grid:{drawOnChartArea:false},
+          title:{display:true,text:'Orders'},ticks:{precision:0}},
+        x:{grid:{display:false},ticks:{maxRotation:0,autoSkipPadding:12}}},
+      plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8}},tooltip:T.tt}}});
+}
+
+function drawCnvRate(C){
+  var T=chartTheme();
+  var rows=C.slice().sort(function(a,b){return a.day<b.day?-1:1;});
+  killChart('cnvRateChart');
+  if(!rows.length){chartMsg('cnvRateChart','&#128202;','No data in this range.');return;}
+  chartMsg('cnvRateChart',null,null);
+  charts.cnvRateChart=new Chart(el('cnvRateChart'),{type:'line',
+    data:{labels:rows.map(function(r){return fmtDay(r.day);}),datasets:[
+      {label:'Sess→ATC %',data:rows.map(function(r){return rate(r.atc,r.sessions);}),
+        borderColor:cssVar('--green'),borderWidth:2,cubicInterpolationMode:'monotone',
+        pointRadius:0,fill:false,spanGaps:false},
+      {label:'CO→Order %',data:rows.map(function(r){return rate(r.orders,r.checkout);}),
+        borderColor:cssVar('--amber'),borderWidth:2,cubicInterpolationMode:'monotone',
+        pointRadius:0,fill:false,spanGaps:false},
+      {label:'CVR %',data:rows.map(function(r){return rate(r.orders,r.sessions);}),
+        borderColor:cssVar('--violet'),backgroundColor:hexA(cssVar('--violet'),.16),
+        borderWidth:2.5,cubicInterpolationMode:'monotone',pointRadius:0,fill:true,
+        spanGaps:false,yAxisID:'y1'}
+    ]},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      animation:{duration:600},
+      scales:{y:{beginAtZero:true,grid:{color:T.grid},title:{display:true,text:'Step %'},
+          ticks:{callback:function(v){return v+'%';}}},
+        y1:{beginAtZero:true,position:'right',grid:{drawOnChartArea:false},
+          title:{display:true,text:'CVR %'},ticks:{callback:function(v){return v+'%';}}},
         x:{grid:{display:false},ticks:{maxRotation:0,autoSkipPadding:12}}},
       plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8}},
         tooltip:Object.assign({},T.tt,{callbacks:{label:function(c){
@@ -3079,7 +3353,7 @@ el('exportAll').onclick=function(){
     'tblPayMix','tblSku','tblState','tblCity','tblChannel','tblCat',
     'tblCancBy','tblCanc','tblCourier','tblAging',
     'tblRetReason','tblRetType','tblRetCarrier','tblRetSku','tblReturns',
-    'tblClkDest','tblClkSrc','tblClicks','tblClkDaily','tblFunnel',
+    'tblClkDest','tblClkSrc','tblClicks','tblClkDaily','tblFunnel','tblConv',
     'tblStock','tblStockCat','tblStockAll','tblDaily','tblExplorer'];
   var have=ids.filter(function(i){return TABLES[i]&&TABLES[i].rows.length;});
   if(!have.length){alert('No data loaded yet.');return;}

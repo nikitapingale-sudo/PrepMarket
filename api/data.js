@@ -39,6 +39,7 @@ const TABS = {
   stock: "Stock_Raw",
   returns: "Pending Returns report",
   clicks: "Banner_Clicks",
+  conversion: "Conversion_Raw",
 };
 
 /* ---------- gviz fetch: returns [{header: value, ...}, ...] ---------- */
@@ -406,6 +407,28 @@ async function loadClicks() {
   return fresh;
 }
 
+/**
+ * "Conversion_Raw" - the Shopify conversion-rate breakdown export.
+ * Column names are taken straight from that CSV so the export can be pasted in
+ * unchanged. Orders come from "Sessions that completed checkout"; the export's
+ * own Conversion rate column is ignored because the dashboard recomputes rates
+ * for whatever date range is selected.
+ */
+function normalizeConversion(raw) {
+  const out = [];
+  for (const o of raw) {
+    const day = toDayStr(pick(o, ["Day", "Date", "day", "date"]));
+    if (!day) continue;
+    const sessions = num(pick(o, ["Sessions", "sessions"]));
+    const atc = num(pick(o, ["Sessions with cart additions", "Cart additions", "ATC"]));
+    const checkout = num(pick(o, ["Sessions that reached checkout", "Reached checkout", "Checkout"]));
+    const orders = num(pick(o, ["Sessions that completed checkout", "Completed checkout", "Orders"]));
+    if (!sessions && !atc && !checkout && !orders) continue;
+    out.push({ day, sessions, atc, checkout, orders });
+  }
+  return out;
+}
+
 /** Ingress funnel rows. Warehouse-only, so Vercel serves it from the snapshot. */
 function normalizeFunnel(raw) {
   const out = [];
@@ -535,7 +558,7 @@ function normalizeStock(raw) {
 
 /* ---------- handler ---------- */
 export async function buildPayload() {
-  const [ordersRaw, cancRaw, agingRaw, stockRaw, returnsRaw, clicksResult, funnel] =
+  const [ordersRaw, cancRaw, agingRaw, stockRaw, returnsRaw, clicksResult, funnel, convRaw] =
     await Promise.all([
     fetchTab(TABS.orders),
     fetchTab(TABS.cancellations),
@@ -545,6 +568,7 @@ export async function buildPayload() {
     fetchTab(TABS.returns).catch(() => []),
     loadClicks(),
     loadFunnel(),
+    fetchTab(TABS.conversion).catch(() => []),
   ]);
 
   const now = new Date();
@@ -578,6 +602,7 @@ export async function buildPayload() {
     orders, cancellations, aging, stock, returns,
     clicks: clicksResult.rows,
     funnel,
+    conversion: normalizeConversion(convRaw),
     clicksDailyUsers: clicksResult.dailyUsers || {},
     clicksDailyVisitors: clicksResult.dailyVisitors || {},
     clicksSource: clicksResult.source,
