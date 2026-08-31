@@ -32,7 +32,7 @@ for (const name of [".env.local", ".env"]) {
   } catch { /* file is optional */ }
 }
 
-const { trinoConfigured, trinoQuery, bannerClicksSql, bannerUsersByDaySql } =
+const { trinoConfigured, trinoQuery, bannerClicksSql, bannerUsersByDaySql, funnelSql } =
   await import("../api/trino.js");
 
 if (!trinoConfigured()) {
@@ -43,11 +43,13 @@ if (!trinoConfigured()) {
 const days = Number(process.env.CLICKS_DAYS) || 90;
 console.log(`\n  Querying Trino for the last ${days} days...`);
 
-let rows, userRows;
+const funnelDays = Number(process.env.FUNNEL_DAYS) || 30;
+let rows, userRows, funnelRows;
 try {
-  [rows, userRows] = await Promise.all([
+  [rows, userRows, funnelRows] = await Promise.all([
     trinoQuery(bannerClicksSql(days), { timeoutMs: 120000 }),
     trinoQuery(bannerUsersByDaySql(days), { timeoutMs: 120000 }),
+    trinoQuery(funnelSql(funnelDays), { timeoutMs: 150000 }),
   ]);
 } catch (e) {
   console.error("\n  Query failed: " + e.message);
@@ -98,6 +100,13 @@ const snapshot = {
   rows: clicks,
   dailyUsers,
   dailyVisitors,
+  funnel: (funnelRows || []).map((r) => ({
+    day: String(r.event_date || "").slice(0, 10),
+    plp: Number(r.plp_viewed) || 0,
+    banner: Number(r.banner_clicks) || 0,
+    wView: Number(r.widget_viewed) || 0,
+    wClick: Number(r.widget_clicks) || 0,
+  })).filter((r) => r.day),
 };
 
 writeFileSync(OUT, JSON.stringify(snapshot, null, 0));
@@ -106,6 +115,7 @@ console.log(`  rows        : ${clicks.length}`);
 console.log(`  total clicks: ${total.toLocaleString("en-IN")}`);
 console.log(`  signed-in   : ${userTotal.toLocaleString("en-IN")} (daily uniques, ${Object.keys(dailyUsers).length} days)`);
 console.log(`  visitors    : ${visitorTotal.toLocaleString("en-IN")} (daily uniques, incl. logged-out)`);
+console.log(`  funnel rows : ${(funnelRows || []).length} days of ingress data`);
 console.log(`  range       : ${snapshot.from} -> ${snapshot.to}`);
 console.log(`  written     : clicks-snapshot.json`);
 console.log(`\n  Now run "npm run deploy" to publish it (or use "npm run publish-clicks").\n`);

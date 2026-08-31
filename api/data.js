@@ -7,7 +7,8 @@
  * (otherwise Google returns an HTML login page instead of data).
  */
 
-import { trinoConfigured, trinoQuery, bannerClicksSql, bannerUsersByDaySql } from "./trino.js";
+import { trinoConfigured, trinoQuery, bannerClicksSql, bannerUsersByDaySql, funnelSql }
+  from "./trino.js";
 
 /**
  * The Sheet ID is a secret in practice: the Sheet is shared "anyone with the
@@ -405,6 +406,38 @@ async function loadClicks() {
   return fresh;
 }
 
+/** Ingress funnel rows. Warehouse-only, so Vercel serves it from the snapshot. */
+function normalizeFunnel(raw) {
+  const out = [];
+  for (const r of raw || []) {
+    const day = toDayStr(r.event_date ?? pick(r, ["event_date", "Date", "date"]));
+    if (!day) continue;
+    out.push({
+      day,
+      plp: num(r.plp_viewed),
+      banner: num(r.banner_clicks),
+      wView: num(r.widget_viewed),
+      wClick: num(r.widget_clicks),
+    });
+  }
+  return out;
+}
+
+let funnelCache = null;
+async function loadFunnel() {
+  if (funnelCache && Date.now() - funnelCache.at < CLICKS_TTL_MS) return funnelCache.rows;
+  if (!trinoConfigured()) return [];
+  try {
+    const rows = normalizeFunnel(
+      await trinoQuery(funnelSql(Number(process.env.FUNNEL_DAYS) || 30))
+    );
+    if (rows.length) funnelCache = { at: Date.now(), rows };
+    return rows;
+  } catch {
+    return [];   // the funnel page shows its own guidance when empty
+  }
+}
+
 async function loadClicksUncached() {
   if (trinoConfigured()) {
     try {
@@ -502,7 +535,8 @@ function normalizeStock(raw) {
 
 /* ---------- handler ---------- */
 export async function buildPayload() {
-  const [ordersRaw, cancRaw, agingRaw, stockRaw, returnsRaw, clicksResult] = await Promise.all([
+  const [ordersRaw, cancRaw, agingRaw, stockRaw, returnsRaw, clicksResult, funnel] =
+    await Promise.all([
     fetchTab(TABS.orders),
     fetchTab(TABS.cancellations),
     fetchTab(TABS.aging),
@@ -510,6 +544,7 @@ export async function buildPayload() {
     // optional sources: a missing one must not take the whole dashboard down
     fetchTab(TABS.returns).catch(() => []),
     loadClicks(),
+    loadFunnel(),
   ]);
 
   const now = new Date();
@@ -542,6 +577,7 @@ export async function buildPayload() {
   return {
     orders, cancellations, aging, stock, returns,
     clicks: clicksResult.rows,
+    funnel,
     clicksDailyUsers: clicksResult.dailyUsers || {},
     clicksDailyVisitors: clicksResult.dailyVisitors || {},
     clicksSource: clicksResult.source,

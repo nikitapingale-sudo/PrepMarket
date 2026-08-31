@@ -146,6 +146,62 @@ ORDER BY 1 DESC, 4 DESC`.trim();
 }
 
 /**
+ * Ingress funnel: PLP views -> banner clicks, and widget views -> widget clicks,
+ * as distinct users per day.
+ *
+ * Differences from the analyst's original: a rolling window instead of a fixed
+ * start date, and no GROUPING SETS total row. The dashboard filters by date
+ * client-side, so it has to compute its own totals - a pre-baked "Total" row
+ * would be wrong the moment a narrower range is selected, and would also be
+ * mistaken for a data row by the table sorter.
+ */
+export function funnelSql(days = 30) {
+  const since = `current_date - INTERVAL '${Number(days) || 30}' DAY`;
+  return `
+WITH plp AS (
+    SELECT event_date, COUNT(DISTINCT user_id) AS v
+    FROM mview.gold_dbt_pw_store_events
+    WHERE event_name = 'pwst_product_listing'
+      AND event_date >= ${since}
+    GROUP BY event_date
+),
+banner AS (
+    SELECT DATE(event_datetime) AS event_date, COUNT(DISTINCT user_id) AS v
+    FROM pw_bq.silver_dbt_category_banner_click
+    WHERE DATE(event_datetime) >= ${since}
+      AND lower(element_at(event_params, 'redirection_url').string_value) LIKE 'https://prepmarket.live/%'
+    GROUP BY 1
+),
+widget_view AS (
+    SELECT DATE(event_datetime) AS event_date, COUNT(DISTINCT user_id) AS v
+    FROM pw_bq.silver_dbt_pwst_prep_online_ingress_viewed
+    WHERE DATE(event_datetime) >= ${since}
+    GROUP BY 1
+),
+widget_click AS (
+    SELECT DATE(event_datetime) AS event_date, COUNT(DISTINCT user_id) AS v
+    FROM pw_bq.silver_dbt_pwst_prep_online_ingress_clicked
+    WHERE DATE(event_datetime) >= ${since}
+    GROUP BY 1
+),
+unioned AS (
+    SELECT event_date, 'plp'          AS metric, v FROM plp
+    UNION ALL SELECT event_date, 'banner_click', v FROM banner
+    UNION ALL SELECT event_date, 'widget_view',  v FROM widget_view
+    UNION ALL SELECT event_date, 'widget_click', v FROM widget_click
+)
+SELECT
+    event_date,
+    SUM(CASE WHEN metric = 'plp'          THEN v ELSE 0 END) AS plp_viewed,
+    SUM(CASE WHEN metric = 'banner_click' THEN v ELSE 0 END) AS banner_clicks,
+    SUM(CASE WHEN metric = 'widget_view'  THEN v ELSE 0 END) AS widget_viewed,
+    SUM(CASE WHEN metric = 'widget_click' THEN v ELSE 0 END) AS widget_clicks
+FROM unioned
+GROUP BY event_date
+ORDER BY event_date DESC`.trim();
+}
+
+/**
  * Audience per DAY, queried separately because distinct counts cannot be added
  * up. Summing the per-row counts above would count one person once per banner
  * they clicked. This gives an accurate figure for each day, which the dashboard

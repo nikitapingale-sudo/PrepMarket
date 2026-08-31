@@ -240,9 +240,12 @@
   .ins .ic{font-size:16px;line-height:1.2}
   .ins .tx{font-size:12.5px;line-height:1.55;color:var(--mute)}
   .ins .tx b{color:var(--txt);font-weight:700}
-  .ins .cat{display:inline-block;font-size:9px;letter-spacing:.12em;font-weight:800;
-    text-transform:uppercase;color:var(--c,var(--cyan));border:1px solid currentColor;
-    border-radius:99px;padding:1px 7px;margin-right:7px;opacity:.75;vertical-align:1px}
+  .insgroup+.insgroup{margin-top:16px}
+  .insgroup-h{display:flex;align-items:center;gap:9px;font-size:10.5px;letter-spacing:.13em;
+    text-transform:uppercase;font-weight:800;color:var(--gc,var(--cyan));margin-bottom:9px}
+  .insgroup-h::after{content:'';flex:1;height:1px;background:var(--line)}
+  .insgroup-h .n{font-size:10px;color:var(--mute);background:rgba(120,140,190,.14);
+    border-radius:99px;padding:1px 8px;letter-spacing:.04em}
 
   /* ---------- heatmap ---------- */
   .heat{display:grid;grid-template-columns:auto repeat(24,1fr);gap:2px;font-size:9.5px;min-width:640px}
@@ -250,6 +253,26 @@
   .heat .hc{height:20px;border-radius:3px;background:rgba(120,140,190,.09);transition:transform .12s}
   .heat .hc:hover{transform:scale(1.35);z-index:2;position:relative;outline:1px solid var(--cyan)}
   .heat .hh{color:var(--mute);text-align:center;font-weight:700;font-size:8.5px}
+
+  /* ---------- funnel steps ---------- */
+  .funnel{display:flex;align-items:stretch;gap:0;min-width:660px;padding:4px 0}
+  .fstep{flex:1;position:relative;padding:15px 18px;border-radius:12px;
+    background:linear-gradient(135deg,color-mix(in srgb,var(--fc) 16%,transparent),
+      color-mix(in srgb,var(--fc) 5%,transparent));
+    border:1px solid color-mix(in srgb,var(--fc) 35%,transparent)}
+  .fstep .fl{font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+    font-weight:800;color:var(--fc)}
+  .fstep .fv{font-family:'Space Grotesk','Inter',sans-serif;font-size:25px;font-weight:700;
+    margin-top:6px;font-variant-numeric:tabular-nums}
+  .fstep .fs{font-size:11.5px;color:var(--mute);margin-top:3px}
+  .farrow{flex:0 0 76px;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:3px;color:var(--mute)}
+  .farrow .fpct{font-size:14px;font-weight:800;color:var(--txt);font-variant-numeric:tabular-nums}
+  .farrow .fcap{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase}
+  .farrow .fbar{width:100%;height:2px;background:var(--line2);position:relative}
+  .farrow .fbar::after{content:'';position:absolute;right:0;top:-3px;
+    border-left:6px solid var(--line2);border-top:4px solid transparent;
+    border-bottom:4px solid transparent}
 
   /* ---------- pagination ---------- */
   .pager{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:11px;flex-wrap:wrap}
@@ -353,6 +376,7 @@
   <button data-t="ops">Operations</button>
   <button data-t="returns">Pending Returns Report <span class="cnt" id="retCount">0</span></button>
   <button data-t="clicks">Banner Clicks <span class="cnt" id="clkCount">0</span></button>
+  <button data-t="funnel">Funnel Report <span class="cnt" id="fnlCount">0</span></button>
   <button data-t="inventory">Inventory</button>
   <button data-t="explorer">Data Explorer <span class="cnt" id="expCount">0</span></button>
 </div>
@@ -370,7 +394,7 @@
 
     <div class="card">
       <h2>Auto insights <span class="tag">generated from the current filter</span></h2>
-      <div class="insights" id="insights"></div>
+      <div id="insights"></div>
     </div>
 
     <div class="card">
@@ -535,6 +559,43 @@
       <div class="card">
         <h2>Source pages <span class="tag">where the banner was clicked</span><span class="spacer"></span><button class="xls" data-xls="tblClkSrc">&#8681; EXCEL</button></h2>
         <div class="overflow" id="tblClkSrc"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= FUNNEL REPORT ================= -->
+  <section class="pane" id="pane-funnel">
+    <div id="fnlEmpty" style="display:none">
+      <div class="card"><div class="empty" id="fnlEmptyMsg"></div></div>
+    </div>
+
+    <div id="fnlBody" style="display:none">
+      <div class="kpis" id="fnlKpis"></div>
+
+      <div class="card">
+        <h2>Ingress funnel <span class="tag" id="fnlRangeTag"></span> <span id="fnlSource"></span></h2>
+        <div class="overflow"><div class="funnel" id="fnlSteps"></div></div>
+      </div>
+
+      <div class="card">
+        <h2>Insights &amp; observations <span class="tag">generated from the current date range</span></h2>
+        <div class="insights" id="fnlInsights"></div>
+      </div>
+
+      <div class="card">
+        <h2>Entry clicks by day <span class="tag">banner vs widget</span></h2>
+        <div class="chartbox sm"><canvas id="fnlTrendChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>Click-through rate by day <span class="tag">%</span></h2>
+        <div class="chartbox sm"><canvas id="fnlCtrChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>Ingress performance, day on day<span class="spacer"></span><button class="xls" data-xls="tblFunnel">&#8681; EXCEL</button></h2>
+        <div class="overflow" id="tblFunnel"></div>
+        <div class="pager" id="pgFunnel"></div>
       </div>
     </div>
   </section>
@@ -720,7 +781,7 @@ function syncStick(){
 window.addEventListener('resize',syncStick);
 
 /* ---------- tabs (hash-linkable, so a view can be shared) ---------- */
-var TABS=['overview','sales','ops','returns','clicks','inventory','explorer'];
+var TABS=['overview','sales','ops','returns','clicks','funnel','inventory','explorer'];
 function showTab(t){
   if(TABS.indexOf(t)<0)t='overview';
   document.querySelectorAll('#tabs button').forEach(function(x){x.classList.toggle('on',x.dataset.t===t);});
@@ -754,7 +815,7 @@ function applyData(d){
   DATA=d;
   DATA.orders=DATA.orders||[];DATA.cancellations=DATA.cancellations||[];
   DATA.aging=DATA.aging||[];DATA.stock=DATA.stock||[];DATA.returns=DATA.returns||[];
-  DATA.clicks=DATA.clicks||[];
+  DATA.clicks=DATA.clicks||[];DATA.funnel=DATA.funnel||[];
   EST=DATA.estimated||{};
   el('gen').textContent='synced '+d.generatedAt;
   drawFreshness();
@@ -785,7 +846,8 @@ function applyData(d){
  * the corporate network.
  */
 function withClickSnapshot(d){
-  if(d.clicks&&d.clicks.length)return Promise.resolve(d);
+  /* fetch when EITHER dataset is missing - the funnel query can fail on its own */
+  if((d.clicks||[]).length&&(d.funnel||[]).length)return Promise.resolve(d);
   return fetch('clicks-snapshot.json',{cache:'no-store'})
     .then(function(r){return r.ok?r.json():null;})
     .then(function(s){
@@ -793,6 +855,7 @@ function withClickSnapshot(d){
         d.clicks=s.rows;
         d.clicksDailyUsers=s.dailyUsers||{};
         d.clicksDailyVisitors=s.dailyVisitors||{};
+        if(s.funnel&&s.funnel.length&&!(d.funnel||[]).length)d.funnel=s.funnel;
         d.clicksSource='snapshot';
         d.clicksSnapshotAt=s.generatedAt;
         d.clicksError=null;
@@ -1340,6 +1403,7 @@ function render(){
 
   renderReturns(days,nOrders);
   renderClicks(days);
+  renderFunnel(days);
 
   tblTop5(O);
   tblSku(O);tblState(O);tblCity(O);tblChannel(O,Cc);tblCat(O);
@@ -1789,6 +1853,282 @@ function drawClkTrend(days,byDay){
       plugins:{legend:{display:false},tooltip:T.tt}}});
 }
 
+/* ============================ FUNNEL REPORT ============================ */
+/**
+ * Ingress funnel: PLP views -> banner clicks, widget views -> widget clicks.
+ * Rates are always computed from summed numerator over summed denominator -
+ * averaging daily percentages would weight a quiet day the same as a peak one.
+ */
+function funnelIn(from,to){
+  return DATA.funnel.filter(function(r){return !r.day||(r.day>=from&&r.day<=to);});
+}
+/** Rate, or null when the denominator is missing so it reads "—" not "0%". */
+function rate(n,d){return d>0?n/d*100:null;}
+
+/**
+ * The three funnel series were instrumented on different dates - PLP from the
+ * start, banner tracking later, the widget later still. Summing a short series
+ * over a long one understates the rate badly (banner CTR read 0.49% instead of
+ * 0.87%), so aggregate rates are computed only over days where BOTH series were
+ * actually collecting.
+ */
+function firstActive(rows,key){
+  var days=rows.filter(function(r){return r[key]>0;}).map(function(r){return r.day;}).sort();
+  return days.length?days[0]:null;
+}
+function alignedRate(rows,numKey,denKey){
+  var a=firstActive(rows,numKey), b=firstActive(rows,denKey);
+  if(!a||!b)return {v:null,from:null,days:0};
+  var from=a>b?a:b;
+  var win=rows.filter(function(r){return r.day>=from&&r[denKey]>0;});
+  if(!win.length)return {v:null,from:from,days:0};
+  return {
+    v:rate(sum(win,function(r){return r[numKey];}),sum(win,function(r){return r[denKey];})),
+    from:from,days:win.length
+  };
+}
+/** Label a rate with its window when that window is shorter than the selection. */
+function windowNote(a,totalDays){
+  return (a.days&&a.days<totalDays)?' · '+a.days+'d of data from '+fmtDay(a.from):'';
+}
+function pctCell(v){
+  return v==null?'<span style="color:var(--mute)" title="no denominator for this day">—</span>'
+    :v.toFixed(2)+'%';
+}
+
+function renderFunnel(days){
+  var Fn=funnelIn(F.from,F.to).slice().sort(function(a,b){return a.day<b.day?1:-1;});
+  el('fnlCount').textContent=fmtN(Fn.length);
+
+  if(!DATA.funnel.length){
+    el('fnlEmptyMsg').innerHTML='<span class="big">&#128200;</span>'+
+      '<b>No funnel data yet.</b><br><br>'+
+      'This report reads the warehouse directly, which is only reachable from inside '+
+      'the corporate network.<br><br>From your machine, on the network, run:<br>'+
+      '<code style="color:var(--cyan);font-size:14px">npm run publish-clicks</code>'+
+      '<br><br>That refreshes both the banner and funnel data here.';
+    el('fnlEmpty').style.display='block';el('fnlBody').style.display='none';
+    return;
+  }
+  el('fnlEmpty').style.display='none';el('fnlBody').style.display='block';
+
+  var plp=sum(Fn,function(r){return r.plp;});
+  var banner=sum(Fn,function(r){return r.banner;});
+  var wView=sum(Fn,function(r){return r.wView;});
+  var wClick=sum(Fn,function(r){return r.wClick;});
+  var entry=banner+wClick;
+  /* aligned so a later-instrumented series is not divided by a longer one */
+  var withEntry=Fn.map(function(r){return Object.assign({},r,{entry:r.banner+r.wClick});});
+  var aB=alignedRate(Fn,'banner','plp'), aW=alignedRate(Fn,'wClick','wView'),
+      aE=alignedRate(withEntry,'entry','plp'), aX=alignedRate(Fn,'wView','plp');
+  var bCtr=aB.v, wCtr=aW.v, eCtr=aE.v;
+
+  var dates=Fn.map(function(r){return r.day;}).sort();
+  el('fnlRangeTag').textContent=dates.length
+    ? fmtDay(dates[0])+' → '+fmtDay(dates[dates.length-1]) : '';
+  var srcNode=el('fnlSource');
+  if(DATA.clicksSource==='snapshot'){
+    srcNode.className='pill amber';
+    srcNode.textContent='snapshot · '+(DATA.clicksSnapshotAt||'unknown');
+  }else{srcNode.className='pill green';srcNode.textContent='live from Trino';}
+
+  paintKpis('fnlKpis',[
+    {lab:'PLP Viewed',v:plp,f:fmtN,sub:'distinct users on product listings',
+      a1:'var(--cyan)',a2:'var(--violet)',gl:'var(--glow-cyan)',d:'',
+      sp:Fn.slice().reverse().map(function(r){return r.plp;}),spc:cssVar('--cyan')},
+    {lab:'Banner Clicks',v:banner,f:fmtN,sub:'entry via category banner',
+      a1:'var(--amber)',a2:'var(--red)',gl:'rgba(251,191,36,.25)',d:'',
+      sp:Fn.slice().reverse().map(function(r){return r.banner;}),spc:cssVar('--amber')},
+    {lab:'Banner CTR',v:bCtr==null?0:bCtr,f:function(n){return bCtr==null?'—':n.toFixed(2)+'%';},
+      sub:'of PLP viewers'+windowNote(aB,Fn.length),
+      a1:'var(--amber)',a2:'var(--amber)',gl:'rgba(251,191,36,.2)',d:''},
+    {lab:'Widget Viewed',v:wView,f:fmtN,sub:'saw the ingress widget',
+      a1:'var(--green)',a2:'var(--cyan)',gl:'rgba(52,211,153,.3)',d:'',
+      sp:Fn.slice().reverse().map(function(r){return r.wView;}),spc:cssVar('--green')},
+    {lab:'Widget Clicks',v:wClick,f:fmtN,sub:'entry via widget',
+      a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:'',
+      sp:Fn.slice().reverse().map(function(r){return r.wClick;}),spc:cssVar('--violet')},
+    {lab:'Widget CTR',v:wCtr==null?0:wCtr,f:function(n){return wCtr==null?'—':n.toFixed(2)+'%';},
+      sub:'of widget viewers'+windowNote(aW,Fn.length),
+      a1:'var(--violet)',a2:'var(--violet)',gl:'var(--glow-violet)',d:''},
+    {lab:'Total Entry Clicks',v:entry,f:fmtN,
+      sub:(eCtr==null?'banner + widget':eCtr.toFixed(2)+'% of PLP viewers'+windowNote(aE,Fn.length)),
+      a1:'var(--blue)',a2:'var(--green)',gl:'rgba(96,165,250,.25)',d:''}
+  ]);
+
+  drawFunnelSteps(plp,wView,wClick,banner,entry,{expo:aX.v,click:aW.v,total:aE.v});
+  drawFunnelInsights(Fn,{plp:plp,banner:banner,wView:wView,wClick:wClick,
+    entry:entry,bCtr:bCtr,wCtr:wCtr,eCtr:eCtr,expo:aX,aB:aB,aW:aW,days:Fn.length});
+  drawFnlTrend(Fn);
+  drawFnlCtr(Fn);
+
+  renderTable('tblFunnel',
+    [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
+     {k:'plp',label:'PLP Viewed',r:1,tot:fmtN},
+     {k:'banner',label:'Banner Clicks',r:1,tot:fmtN},
+     {k:'bCtr',label:'Banner CTR %',r:1,fmt:pctCell,
+      xl:function(v){return v==null?'':+v.toFixed(2);},
+      totalOf:function(rows){
+        var a=alignedRate(rows,'banner','plp');
+        return a.v==null?'—':a.v.toFixed(2)+'%';}},
+     {k:'wView',label:'Widget Viewed',r:1,tot:fmtN},
+     {k:'wClick',label:'Widget Clicks',r:1,tot:fmtN},
+     {k:'wCtr',label:'Widget CTR %',r:1,fmt:pctCell,
+      xl:function(v){return v==null?'':+v.toFixed(2);},
+      totalOf:function(rows){
+        var a=alignedRate(rows,'wClick','wView');
+        return a.v==null?'—':a.v.toFixed(2)+'%';}},
+     {k:'entry',label:'Total Entry Clicks',r:1,bar:1,tot:fmtN}],
+    Fn.map(function(r){
+      return Object.assign({},r,{
+        bCtr:rate(r.banner,r.plp),
+        wCtr:rate(r.wClick,r.wView),
+        entry:r.banner+r.wClick});}),
+    'No funnel data in this range.',
+    {name:'Ingress Funnel',totals:1,pageSize:20,pager:'pgFunnel'});
+}
+
+/** Horizontal funnel: how many of the people who saw a step took the next one. */
+function drawFunnelSteps(plp,wView,wClick,banner,entry,r){
+  function step(label,val,sub,color){
+    return '<div class="fstep" style="--fc:'+color+'">'+
+      '<div class="fl">'+label+'</div>'+
+      '<div class="fv num">'+fmtN(val)+'</div>'+
+      '<div class="fs">'+sub+'</div></div>';
+  }
+  /* percentages come from the aligned windows, not raw column totals */
+  function arrow(v,cap){
+    return '<div class="farrow"><div class="fpct">'+(v==null?'—':v.toFixed(1)+'%')+'</div>'+
+      '<div class="fbar"></div><div class="fcap">'+cap+'</div></div>';
+  }
+  el('fnlSteps').innerHTML=
+    step('PLP Viewed',plp,'product listing pages',cssVar('--cyan'))+
+    arrow(r.expo,'saw widget')+
+    step('Widget Viewed',wView,'ingress widget shown',cssVar('--green'))+
+    arrow(r.click,'clicked')+
+    step('Widget Clicks',wClick,'entered via widget',cssVar('--violet'))+
+    arrow(r.total,'total entry')+
+    step('Total Entry',entry,fmtN(banner)+' banner + '+fmtN(wClick)+' widget',cssVar('--blue'));
+}
+
+function drawFunnelInsights(Fn,t){
+  var out=[];
+  function add(ic,c,html){out.push({ic:ic,c:c,html:html});}
+  var host=el('fnlInsights');if(!host)return;
+
+  /* days where the PLP feed produced nothing - rates are undefined, not zero */
+  var gaps=Fn.filter(function(r){return !r.plp&&(r.wView||r.banner);});
+  if(gaps.length)add('⚠','var(--red)',
+    '<b>'+gaps.length+' day'+(gaps.length>1?'s have':' has')+' no PLP data</b> ('+
+    esc(gaps.slice(0,3).map(function(r){return fmtDay(r.day);}).join(', '))+
+    ') while widget events exist — a gap in <b>gold_dbt_pw_store_events</b>, so CTR '+
+    'cannot be computed for '+(gaps.length>1?'those days':'that day')+'.');
+
+  if(t.wCtr!=null&&t.bCtr!=null)add('\u{1F3AF}','var(--green)',
+    'The widget converts <b>'+(t.bCtr?(t.wCtr/t.bCtr).toFixed(0):'—')+'× better</b> than the banner — '+
+    '<b>'+t.wCtr.toFixed(1)+'%</b> of widget viewers click versus <b>'+t.bCtr.toFixed(2)+
+    '%</b> of PLP viewers on the banner.');
+
+  if(t.entry&&t.wClick)add('\u{1F6AA}','var(--violet)',
+    '<b>'+(t.wClick/t.entry*100).toFixed(0)+'%</b> of all entry clicks come through the widget ('+
+    fmtN(t.wClick)+' of '+fmtN(t.entry)+') — it is the primary door, not the banner.');
+
+  if(t.expo&&t.expo.v!=null)add('\u{1F441}','var(--cyan)',
+    'Only <b>'+t.expo.v.toFixed(1)+'%</b> of PLP viewers ever see the widget'+
+    (t.expo.days<t.days?' (over the '+t.expo.days+' days it has been live)':'')+
+    ' — the biggest drop in the funnel is exposure, not persuasion.');
+
+  /* series were instrumented at different times; say so before anyone compares them */
+  if((t.aB&&t.aB.days<t.days)||(t.aW&&t.aW.days<t.days))
+    add('\u{1F5D3}','var(--amber)',
+      'The three series start on different dates — PLP across all <b>'+t.days+'</b> days, '+
+      'banner from <b>'+fmtDay(t.aB.from)+'</b> ('+t.aB.days+'d), widget from <b>'+
+      fmtDay(t.aW.from)+'</b> ('+t.aW.days+'d). All rates above are computed only over '+
+      'the overlapping days, so they are not diluted by the earlier period.');
+
+  /* momentum on total entry clicks */
+  var live=Fn.filter(function(r){return r.banner+r.wClick>0;})
+    .slice().sort(function(a,b){return a.day<b.day?-1:1;});
+  if(live.length>=4){
+    var h=Math.floor(live.length/2);
+    var older=live.slice(0,h).reduce(function(a,r){return a+r.banner+r.wClick;},0)/h;
+    var newer=live.slice(live.length-h).reduce(function(a,r){return a+r.banner+r.wClick;},0)/h;
+    var g=older?(newer-older)/older*100:0;
+    add(g>=0?'\u{1F4C8}':'\u{1F4C9}',g>=0?'var(--green)':'var(--red)',
+      'Entry clicks are <b>'+(g>=0?'up':'down')+' '+Math.abs(g).toFixed(0)+'%</b> over the last '+
+      h+' days ('+fmtN(Math.round(newer))+'/day vs '+fmtN(Math.round(older))+'/day).');
+  }
+
+  /* best and worst converting days on the widget */
+  var withCtr=Fn.filter(function(r){return r.wView>0;})
+    .map(function(r){return {day:r.day,c:r.wClick/r.wView*100};})
+    .sort(function(a,b){return b.c-a.c;});
+  if(withCtr.length>2)add('\u{1F4C5}','var(--amber)',
+    'Widget CTR ranged from <b>'+withCtr[0].c.toFixed(1)+'%</b> on '+fmtDay(withCtr[0].day)+
+    ' down to <b>'+withCtr[withCtr.length-1].c.toFixed(1)+'%</b> on '+
+    fmtDay(withCtr[withCtr.length-1].day)+' — a '+
+    (withCtr[0].c-withCtr[withCtr.length-1].c).toFixed(1)+' point swing.');
+
+  host.innerHTML=out.map(function(i){
+    return '<div class="ins" style="--c:'+i.c+'"><span class="ic">'+i.ic+'</span>'+
+      '<span class="tx">'+i.html+'</span></div>';
+  }).join('');
+}
+
+function drawFnlTrend(Fn){
+  var T=chartTheme();
+  var rows=Fn.slice().sort(function(a,b){return a.day<b.day?-1:1;});
+  killChart('fnlTrendChart');
+  if(!rows.length){chartMsg('fnlTrendChart','&#128202;','No funnel data in this range.');return;}
+  chartMsg('fnlTrendChart',null,null);
+  charts.fnlTrendChart=new Chart(el('fnlTrendChart'),{
+    data:{labels:rows.map(function(r){return fmtDay(r.day);}),datasets:[
+      {type:'bar',label:'Widget clicks',data:rows.map(function(r){return r.wClick;}),
+        backgroundColor:hexA(cssVar('--violet'),.85),borderRadius:5,maxBarThickness:26,stack:'e'},
+      {type:'bar',label:'Banner clicks',data:rows.map(function(r){return r.banner;}),
+        backgroundColor:hexA(cssVar('--amber'),.85),borderRadius:5,maxBarThickness:26,stack:'e'},
+      {type:'line',label:'PLP viewed',data:rows.map(function(r){return r.plp;}),
+        borderColor:cssVar('--cyan'),borderWidth:2.5,cubicInterpolationMode:'monotone',
+        pointRadius:rows.length>30?0:3,fill:false,yAxisID:'y1'}
+    ]},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      animation:{duration:600},
+      scales:{y:{stacked:true,beginAtZero:true,grid:{color:T.grid},
+          title:{display:true,text:'Entry clicks'}},
+        y1:{beginAtZero:true,position:'right',grid:{drawOnChartArea:false},
+          title:{display:true,text:'PLP viewed'},ticks:{callback:function(v){return fmtN(v);}}},
+        x:{stacked:true,grid:{display:false},ticks:{maxRotation:0,autoSkipPadding:12}}},
+      plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8}},tooltip:T.tt}}});
+}
+
+function drawFnlCtr(Fn){
+  var T=chartTheme();
+  var rows=Fn.slice().sort(function(a,b){return a.day<b.day?-1:1;});
+  killChart('fnlCtrChart');
+  if(!rows.length){chartMsg('fnlCtrChart','&#128202;','No funnel data in this range.');return;}
+  chartMsg('fnlCtrChart',null,null);
+  charts.fnlCtrChart=new Chart(el('fnlCtrChart'),{type:'line',
+    data:{labels:rows.map(function(r){return fmtDay(r.day);}),datasets:[
+      {label:'Widget CTR %',data:rows.map(function(r){return rate(r.wClick,r.wView);}),
+        borderColor:cssVar('--violet'),backgroundColor:hexA(cssVar('--violet'),.15),
+        borderWidth:2.5,cubicInterpolationMode:'monotone',fill:true,
+        pointRadius:rows.length>30?0:3,spanGaps:false},
+      {label:'Banner CTR %',data:rows.map(function(r){return rate(r.banner,r.plp);}),
+        borderColor:cssVar('--amber'),borderWidth:2.5,cubicInterpolationMode:'monotone',
+        fill:false,pointRadius:rows.length>30?0:3,spanGaps:false,yAxisID:'y1'}
+    ]},
+    options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      animation:{duration:600},
+      scales:{y:{beginAtZero:true,grid:{color:T.grid},
+          title:{display:true,text:'Widget CTR %'},ticks:{callback:function(v){return v+'%';}}},
+        y1:{beginAtZero:true,position:'right',grid:{drawOnChartArea:false},
+          title:{display:true,text:'Banner CTR %'},ticks:{callback:function(v){return v+'%';}}},
+        x:{grid:{display:false},ticks:{maxRotation:0,autoSkipPadding:12}}},
+      plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8}},
+        tooltip:Object.assign({},T.tt,{callbacks:{label:function(c){
+          return ' '+c.dataset.label+': '+(c.parsed.y==null?'no data':c.parsed.y.toFixed(2)+'%');}}})}}});
+}
+
 /* ---------- auto insights ---------- */
 /**
  * Overview observations across sales, operations, returns and inventory.
@@ -1982,9 +2322,30 @@ function drawInsights(s){
       'damaged in the warehouse.');
   }
 
-  el('insights').innerHTML=out.map(function(i){
-    return '<div class="ins" style="--c:'+i.c+'"><span class="ic">'+i.ic+'</span>'+
-      '<span class="tx"><span class="cat">'+i.cat+'</span>'+i.html+'</span></div>';
+  el('insights').innerHTML=groupInsights(out);
+}
+
+/**
+ * Renders insights in labelled sections rather than one undifferentiated grid,
+ * so 19 observations stay readable. Order is fixed - Sales, Operations,
+ * Returns, Inventory - regardless of the order they were generated in.
+ */
+var INSIGHT_ORDER=['Sales','Operations','Returns','Inventory'];
+var INSIGHT_COLOR={Sales:'var(--green)',Operations:'var(--amber)',
+                   Returns:'var(--pink)',Inventory:'var(--blue)'};
+function groupInsights(items){
+  var seen=INSIGHT_ORDER.slice();
+  items.forEach(function(i){if(seen.indexOf(i.cat)<0)seen.push(i.cat);});
+  return seen.map(function(cat){
+    var group=items.filter(function(i){return i.cat===cat;});
+    if(!group.length)return '';
+    return '<div class="insgroup">'+
+      '<div class="insgroup-h" style="--gc:'+(INSIGHT_COLOR[cat]||'var(--cyan)')+'">'+
+        esc(cat)+'<span class="n">'+group.length+'</span></div>'+
+      '<div class="insights">'+group.map(function(i){
+        return '<div class="ins" style="--c:'+i.c+'"><span class="ic">'+i.ic+'</span>'+
+          '<span class="tx">'+i.html+'</span></div>';
+      }).join('')+'</div></div>';
   }).join('');
 }
 
@@ -2346,6 +2707,8 @@ function renderTable(elmId,cols,data,emptyMsg,opts){
       /* distinct counts are not additive - summing them would count one person
          once per row they appear in */
       if(c.noTotal)return '<td class="num r" title="Distinct counts cannot be added up">—</td>';
+      /* ratios must be recomputed from the totals, never summed or averaged */
+      if(c.totalOf)return '<td class="num r">'+c.totalOf(rows)+'</td>';
       var numeric=rows.some(function(r){return typeof r[c.k]==='number';});
       if(!numeric)return '<td></td>';
       var s=rows.reduce(function(a,r){return a+(r[c.k]||0);},0);
@@ -2716,7 +3079,7 @@ el('exportAll').onclick=function(){
     'tblPayMix','tblSku','tblState','tblCity','tblChannel','tblCat',
     'tblCancBy','tblCanc','tblCourier','tblAging',
     'tblRetReason','tblRetType','tblRetCarrier','tblRetSku','tblReturns',
-    'tblClkDest','tblClkSrc','tblClicks','tblClkDaily',
+    'tblClkDest','tblClkSrc','tblClicks','tblClkDaily','tblFunnel',
     'tblStock','tblStockCat','tblStockAll','tblDaily','tblExplorer'];
   var have=ids.filter(function(i){return TABLES[i]&&TABLES[i].rows.length;});
   if(!have.length){alert('No data loaded yet.');return;}
