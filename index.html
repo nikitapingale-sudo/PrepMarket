@@ -569,6 +569,27 @@
       <div class="card"><div class="empty" id="fnlEmptyMsg"></div></div>
     </div>
 
+    <!-- ---- end-to-end: redirection through to order ---- -->
+    <div id="e2eBody" style="display:none">
+      <div class="kpis" id="e2eKpis"></div>
+
+      <div class="card" style="border-color:var(--line2)">
+        <h2>End to end: redirection &rarr; conversion <span class="tag" id="e2eRangeTag"></span></h2>
+        <div class="overflow"><div class="funnel" id="e2eSteps"></div></div>
+      </div>
+
+      <div class="card">
+        <h2>Where the journey leaks</h2>
+        <div class="insights" id="e2eInsights"></div>
+      </div>
+
+      <div class="card">
+        <h2>Day on day: redirection &rarr; conversion<span class="spacer"></span><button class="xls" data-xls="tblE2E">&#8681; EXCEL</button></h2>
+        <div class="overflow" id="tblE2E"></div>
+        <div class="pager" id="pgE2E"></div>
+      </div>
+    </div>
+
     <div id="fnlBody" style="display:none">
       <div class="kpis" id="fnlKpis"></div>
 
@@ -1453,6 +1474,7 @@ function render(){
   renderReturns(days,nOrders);
   renderClicks(days);
   renderFunnel(days);
+  renderE2E();
   renderConversion();
 
   tblTop5(O);
@@ -2177,6 +2199,183 @@ function drawFnlCtr(Fn){
       plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8}},
         tooltip:Object.assign({},T.tt,{callbacks:{label:function(c){
           return ' '+c.dataset.label+': '+(c.parsed.y==null?'no data':c.parsed.y.toFixed(2)+'%');}}})}}});
+}
+
+/* ==================== END-TO-END: REDIRECTION -> ORDER ==================== */
+/**
+ * Joins the ingress funnel (entry clicks) to the on-site funnel (sessions ->
+ * order) on date, giving one chain from "clicked a banner or widget" through to
+ * "placed an order".
+ *
+ * Inner join on purpose: a day with entry clicks but no session export - or the
+ * reverse - would produce a Click->Session rate built from half a picture.
+ * Days before entry tracking began are excluded for the same reason.
+ */
+function e2eRows(from,to){
+  var conv={};
+  DATA.conversion.forEach(function(r){conv[r.day]=r;});
+  var out=[];
+  DATA.funnel.forEach(function(f){
+    var c=conv[f.day];if(!c)return;
+    if(f.day<from||f.day>to)return;
+    var entry=f.banner+f.wClick;
+    if(!entry)return;                 /* before entry tracking existed */
+    out.push({day:f.day,entry:entry,sessions:c.sessions,atc:c.atc,
+      checkout:c.checkout,orders:c.orders});
+  });
+  return out.sort(function(a,b){return a.day<b.day?1:-1;});
+}
+
+function renderE2E(){
+  var E=e2eRows(F.from,F.to);
+  if(!E.length){el('e2eBody').style.display='none';return;}
+  el('e2eBody').style.display='block';
+
+  var entry=sum(E,function(r){return r.entry;});
+  var sess=sum(E,function(r){return r.sessions;});
+  var atc=sum(E,function(r){return r.atc;});
+  var chk=sum(E,function(r){return r.checkout;});
+  var ord=sum(E,function(r){return r.orders;});
+  var dates=E.map(function(r){return r.day;}).sort();
+  el('e2eRangeTag').textContent=fmtDay(dates[0])+' → '+fmtDay(dates[dates.length-1])+
+    ' · '+E.length+' days with both datasets';
+
+  paintKpis('e2eKpis',[
+    {lab:'Entry Clicks',v:entry,f:fmtN,sub:'banner + widget',
+      a1:'var(--amber)',a2:'var(--red)',gl:'rgba(251,191,36,.25)',d:'',
+      sp:E.slice().reverse().map(function(r){return r.entry;}),spc:cssVar('--amber')},
+    {lab:'Sessions',v:sess,f:fmtN,sub:pctCell(rate(sess,entry))+' of entry clicks',
+      a1:'var(--cyan)',a2:'var(--violet)',gl:'var(--glow-cyan)',d:'',
+      sp:E.slice().reverse().map(function(r){return r.sessions;}),spc:cssVar('--cyan')},
+    {lab:'Added To Cart',v:atc,f:fmtN,sub:pctCell(rate(atc,sess))+' of sessions',
+      a1:'var(--green)',a2:'var(--cyan)',gl:'rgba(52,211,153,.3)',d:''},
+    {lab:'Orders',v:ord,f:fmtN,sub:pctCell(rate(ord,chk))+' of checkouts',
+      a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:'',
+      sp:E.slice().reverse().map(function(r){return r.orders;}),spc:cssVar('--violet')},
+    {lab:'End-to-End CVR',v:rate(ord,entry)||0,
+      f:function(n){return entry?n.toFixed(3)+'%':'—';},sub:'orders per entry click',
+      a1:'var(--blue)',a2:'var(--green)',gl:'rgba(96,165,250,.25)',d:''},
+    {lab:'Clicks / Order',v:ord?entry/ord:0,f:function(n){return ord?fmtN(n):'—';},
+      sub:'entry clicks needed per sale',
+      a1:'var(--red)',a2:'var(--amber)',gl:'rgba(248,113,113,.25)',d:''}
+  ]);
+
+  el('e2eSteps').innerHTML=
+    '<div class="fstep" style="--fc:'+cssVar('--amber')+'"><div class="fl">Entry Clicks</div>'+
+      '<div class="fv num">'+fmtN(entry)+'</div><div class="fs">banner + widget</div></div>'+
+    cnvArrow(rate(sess,entry),'landed')+
+    '<div class="fstep" style="--fc:'+cssVar('--cyan')+'"><div class="fl">Sessions</div>'+
+      '<div class="fv num">'+fmtN(sess)+'</div><div class="fs">store visits</div></div>'+
+    cnvArrow(rate(atc,sess),'added to cart')+
+    '<div class="fstep" style="--fc:'+cssVar('--green')+'"><div class="fl">Cart</div>'+
+      '<div class="fv num">'+fmtN(atc)+'</div><div class="fs">cart additions</div></div>'+
+    cnvArrow(rate(chk,atc),'to checkout')+
+    '<div class="fstep" style="--fc:'+cssVar('--amber')+'"><div class="fl">Checkout</div>'+
+      '<div class="fv num">'+fmtN(chk)+'</div><div class="fs">reached checkout</div></div>'+
+    cnvArrow(rate(ord,chk),'completed')+
+    '<div class="fstep" style="--fc:'+cssVar('--violet')+'"><div class="fl">Orders</div>'+
+      '<div class="fv num">'+fmtN(ord)+'</div><div class="fs">'+
+      (entry?rate(ord,entry).toFixed(3)+'% end to end':'')+'</div></div>';
+
+  drawE2EInsights(E,{entry:entry,sess:sess,atc:atc,chk:chk,ord:ord});
+
+  renderTable('tblE2E',
+    [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
+     {k:'entry',label:'Entry Clicks',r:1,tot:fmtN},
+     {k:'sessions',label:'Sessions',r:1,tot:fmtN},
+     {k:'clickSess',label:'Click→Session',r:1,fmt:function(v){
+        /* over 100% means more sessions than entry clicks - other traffic sources */
+        return v==null?pctCell(v)
+          :v>100?'<span class="tone-amber" title="more sessions than entry clicks — other traffic sources contribute">'+
+                 v.toFixed(1)+'%</span>':v.toFixed(1)+'%';},
+      xl:function(v){return v==null?'':+v.toFixed(2);},
+      totalOf:function(rows){var v=rate(sum(rows,function(r){return r.sessions;}),
+        sum(rows,function(r){return r.entry;}));return v==null?'—':v.toFixed(1)+'%';}},
+     {k:'atc',label:'ATC',r:1,tot:fmtN},
+     {k:'sessAtc',label:'Sess→ATC',r:1,fmt:pctCell,
+      xl:function(v){return v==null?'':+v.toFixed(2);},
+      totalOf:function(rows){var v=rate(sum(rows,function(r){return r.atc;}),
+        sum(rows,function(r){return r.sessions;}));return v==null?'—':v.toFixed(2)+'%';}},
+     {k:'checkout',label:'Checkout',r:1,tot:fmtN},
+     {k:'atcCo',label:'ATC→CO',r:1,fmt:pctCell,
+      xl:function(v){return v==null?'':+v.toFixed(2);},
+      totalOf:function(rows){var v=rate(sum(rows,function(r){return r.checkout;}),
+        sum(rows,function(r){return r.atc;}));return v==null?'—':v.toFixed(1)+'%';}},
+     {k:'orders',label:'Orders',r:1,tot:fmtN},
+     {k:'coOrder',label:'CO→Order',r:1,fmt:pctCell,
+      xl:function(v){return v==null?'':+v.toFixed(2);},
+      totalOf:function(rows){var v=rate(sum(rows,function(r){return r.orders;}),
+        sum(rows,function(r){return r.checkout;}));return v==null?'—':v.toFixed(1)+'%';}},
+     {k:'e2e',label:'E2E CVR',r:1,bar:1,fmt:function(v){
+        return v==null?pctCell(v):v.toFixed(3)+'%';},
+      xl:function(v){return v==null?'':+v.toFixed(4);},
+      totalOf:function(rows){var v=rate(sum(rows,function(r){return r.orders;}),
+        sum(rows,function(r){return r.entry;}));return v==null?'—':v.toFixed(3)+'%';}}],
+    E.map(function(r){
+      return Object.assign({},r,{
+        clickSess:rate(r.sessions,r.entry),
+        sessAtc:rate(r.atc,r.sessions),
+        atcCo:rate(r.checkout,r.atc),
+        coOrder:rate(r.orders,r.checkout),
+        e2e:rate(r.orders,r.entry)});}),
+    'No days where both entry-click and session data exist.',
+    {name:'End To End Funnel',totals:1,pageSize:20,pager:'pgE2E'});
+}
+
+function drawE2EInsights(E,t){
+  var out=[];
+  function add(ic,c,html){out.push({ic:ic,c:c,html:html});}
+  var host=el('e2eInsights');if(!host)return;
+
+  /* rank every step by absolute people lost, not by percentage */
+  var steps=[
+    {n:'Entry click → session',v:rate(t.sess,t.entry),lost:Math.max(0,t.entry-t.sess)},
+    {n:'Session → cart',v:rate(t.atc,t.sess),lost:t.sess-t.atc},
+    {n:'Cart → checkout',v:rate(t.chk,t.atc),lost:t.atc-t.chk},
+    {n:'Checkout → order',v:rate(t.ord,t.chk),lost:t.chk-t.ord}
+  ].filter(function(x){return x.v!=null;});
+  var worst=steps.slice().sort(function(a,b){return b.lost-a.lost;})[0];
+  if(worst)add('\u{1F573}','var(--red)','Biggest absolute drop-off is <b>'+worst.n+'</b> — <b>'+
+    fmtN(worst.lost)+'</b> people lost there, at a '+worst.v.toFixed(1)+'% pass rate.');
+
+  var weakest=steps.slice().sort(function(a,b){return a.v-b.v;})[0];
+  if(weakest&&worst&&weakest.n!==worst.n)add('\u{1F4C9}','var(--amber)',
+    'The lowest pass rate is <b>'+weakest.n+'</b> at <b>'+weakest.v.toFixed(1)+
+    '%</b> — a smaller pool, but the least efficient step.');
+
+  if(t.entry&&t.ord)add('\u{1F3AF}','var(--blue)','End to end, <b>'+
+    fmtN(Math.round(t.entry/t.ord))+' entry clicks</b> produce one order — an overall rate of <b>'+
+    rate(t.ord,t.entry).toFixed(3)+'%</b>.');
+
+  var cs=rate(t.sess,t.entry);
+  if(cs!=null)add(cs<80?'⚠':'✅',cs<80?'var(--amber)':'var(--green)',
+    'Only <b>'+cs.toFixed(1)+'%</b> of entry clicks become a session'+
+    (cs<80?' — roughly '+fmtN(t.entry-t.sess)+' clicks never land, which points at load time, '+
+      'redirect failures or double-counted clicks.'
+     :' — the handoff from click to store is holding up well.'));
+
+  /* has the click-to-session handoff degraded as volume grew? */
+  var byDay=E.slice().sort(function(a,b){return a.day<b.day?-1:1;});
+  if(byDay.length>=6){
+    var h=Math.floor(byDay.length/2);
+    var A=byDay.slice(0,h),B=byDay.slice(byDay.length-h);
+    var a1=rate(sum(A,function(r){return r.orders;}),sum(A,function(r){return r.entry;}));
+    var b1=rate(sum(B,function(r){return r.orders;}),sum(B,function(r){return r.entry;}));
+    if(a1!=null&&b1!=null&&a1>0)add(b1>=a1?'\u{1F4C8}':'\u{1F4C9}',b1>=a1?'var(--green)':'var(--red)',
+      'End-to-end CVR has moved from <b>'+a1.toFixed(3)+'%</b> to <b>'+b1.toFixed(3)+
+      '%</b> across the window ('+((b1-a1)/a1*100).toFixed(0)+'%)'+
+      (b1<a1?' — traffic is growing faster than orders.':'.'));
+  }
+
+  var over=E.filter(function(r){return r.entry&&r.sessions>r.entry;});
+  if(over.length)add('\u{1F50D}','var(--mute)','<b>'+over.length+' day'+(over.length>1?'s have':' has')+
+    '</b> more sessions than entry clicks — the store also gets traffic that never touched a '+
+    'banner or widget, so these two datasets are not a closed system.');
+
+  host.innerHTML=out.map(function(i){
+    return '<div class="ins" style="--c:'+i.c+'"><span class="ic">'+i.ic+'</span>'+
+      '<span class="tx">'+i.html+'</span></div>';
+  }).join('');
 }
 
 /* ==================== MARKETPLACE CONVERSION FUNNEL ==================== */
@@ -3353,7 +3552,7 @@ el('exportAll').onclick=function(){
     'tblPayMix','tblSku','tblState','tblCity','tblChannel','tblCat',
     'tblCancBy','tblCanc','tblCourier','tblAging',
     'tblRetReason','tblRetType','tblRetCarrier','tblRetSku','tblReturns',
-    'tblClkDest','tblClkSrc','tblClicks','tblClkDaily','tblFunnel','tblConv',
+    'tblClkDest','tblClkSrc','tblClicks','tblClkDaily','tblE2E','tblFunnel','tblConv',
     'tblStock','tblStockCat','tblStockAll','tblDaily','tblExplorer'];
   var have=ids.filter(function(i){return TABLES[i]&&TABLES[i].rows.length;});
   if(!have.length){alert('No data loaded yet.');return;}
