@@ -12,7 +12,9 @@
 param(
     [switch]$Remove,
     [switch]$Status,
-    [int]$EveryHours = 3
+    # Three fixed runs a day rather than a rolling interval: predictable times
+    # a team can rely on - before the day starts, midday, and after close.
+    [string[]]$At = @("08:00", "14:00", "20:00")
 )
 
 $TaskName = "PrepMarket - Refresh Banner Clicks"
@@ -45,8 +47,8 @@ if ($Status) {
 $cmd = "/c cd /d `"$Project`" && npm run publish-clicks >> `"$LogFile`" 2>&1"
 
 $action    = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $cmd -WorkingDirectory $Project
-$trigger   = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) `
-                -RepetitionInterval (New-TimeSpan -Hours $EveryHours)
+# one daily trigger per requested time
+$trigger   = @($At | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $_ })
 # Run only when a network is available, and don't fight the battery saver -
 # a missed run simply catches up on the next one.
 $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable `
@@ -59,8 +61,9 @@ Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
     -Force | Out-Null
 
 Write-Output "Installed: $TaskName"
-Write-Output "  runs every $EveryHours hours, starting in 2 minutes"
+Write-Output "  runs daily at: $($At -join ', ')"
 Write-Output "  project : $Project"
 Write-Output "  log     : $LogFile"
 Write-Output ""
+Write-Output "Change times: ... schedule-clicks.ps1 -At '07:00','13:00','19:00'"
 Write-Output "Remove with:  powershell -ExecutionPolicy Bypass -File dev\schedule-clicks.ps1 -Remove"
