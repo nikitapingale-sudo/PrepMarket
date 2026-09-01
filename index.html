@@ -524,6 +524,11 @@
   <section class="pane" id="pane-ops">
     <div class="kpis" id="opsKpis"></div>
 
+    <div class="card">
+      <h2>Courier split <span class="tag">orders and revenue, split by payment mode</span><span class="spacer"></span><button class="xls" data-xls="tblCourier">&#8681; EXCEL</button></h2>
+      <div class="overflow" id="tblCourier"></div>
+    </div>
+
     <div class="grid2">
       <div class="card"><h2>Cancellations by day</h2><div class="chartbox sm"><canvas id="cancTrendChart"></canvas></div></div>
       <div class="card"><h2>Cancelled by<span class="spacer"></span><button class="xls" data-xls="tblCancBy">&#8681; EXCEL</button></h2><div class="overflow" id="tblCancBy"></div></div>
@@ -534,10 +539,7 @@
       <div class="chartbox sm"><canvas id="cancReasonChart"></canvas></div>
     </div>
 
-    <div class="grid2">
-      <div class="card"><h2>Pending order aging <span id="agingFlag"></span></h2><div class="chartbox sm"><canvas id="agingChart"></canvas></div></div>
-      <div class="card"><h2>Courier split<span class="spacer"></span><button class="xls" data-xls="tblCourier">&#8681; EXCEL</button></h2><div class="overflow" id="tblCourier"></div></div>
-    </div>
+    <div class="card"><h2>Pending order aging <span id="agingFlag"></span></h2><div class="chartbox sm"><canvas id="agingChart"></canvas></div></div>
 
     <div class="card">
       <h2>Cancellation reason detail<span class="spacer"></span><button class="xls" data-xls="tblCanc">&#8681; EXCEL</button></h2>
@@ -3355,10 +3357,60 @@ function tblCancBy(Cc){
   countTable('tblCancBy','Cancelled By','Cancelled By',
     Object.keys(m).map(function(k){return {key:k,count:m[k]};}),'Cancellations');
 }
+/**
+ * Courier performance, split by payment mode.
+ *
+ * Grouped case-insensitively: the export contains both "Delhivery B2C" and
+ * "DELHIVERY B2C", which were being reported as two separate couriers. The most
+ * frequently used spelling is kept for display.
+ */
 function tblCourier(O){
-  var m={};O.forEach(function(r){if(!r.courier)return;m[r.courier]=m[r.courier]||{};m[r.courier][r.ref]=1;});
-  countTable('tblCourier','Courier Split','Courier',
-    Object.keys(m).map(function(k){return {key:k,count:Object.keys(m[k]).length};}),'Orders');
+  var m={};
+  O.forEach(function(r){
+    if(!r.courier)return;
+    var k=r.courier.trim().toLowerCase().replace(/\s+/g,' ');
+    if(!m[k])m[k]={names:{},refs:{},cod:{},pre:{},codRev:0,preRev:0,rev:0};
+    var g=m[k];
+    g.names[r.courier]=(g.names[r.courier]||0)+1;
+    g.refs[r.ref]=1;
+    if(/cod|cash/i.test(r.pay)){g.cod[r.ref]=1;g.codRev+=r.price;}
+    else{g.pre[r.ref]=1;g.preRev+=r.price;}
+    g.rev+=r.price;
+  });
+
+  var rows=Object.keys(m).map(function(k){
+    var g=m[k];
+    var name=Object.keys(g.names).sort(function(a,b){return g.names[b]-g.names[a];})[0];
+    var orders=Object.keys(g.refs).length;
+    var cod=Object.keys(g.cod).length;
+    return {key:name,orders:orders,cod:cod,pre:Object.keys(g.pre).length,
+      codPc:orders?cod/orders*100:0,
+      rev:g.rev,codRev:g.codRev,preRev:g.preRev};
+  }).sort(function(a,b){return b.orders-a.orders;});
+
+  var totalOrders=rows.reduce(function(a,r){return a+r.orders;},0);
+  rows.forEach(function(r){r.share=totalOrders?r.orders/totalOrders*100:0;});
+
+  renderTable('tblCourier',
+    [{k:'key',label:'Courier'},
+     {k:'orders',label:'Orders',r:1,bar:1,tot:fmtN},
+     Object.assign({k:'share',label:'% of Orders'},C_SHARE),
+     {k:'cod',label:'COD Orders',r:1,tot:fmtN},
+     {k:'pre',label:'Prepaid Orders',r:1,tot:fmtN},
+     {k:'codPc',label:'COD %',r:1,
+      fmt:function(v){return v>80?'<span class="tone-amber" title="heavy COD exposure on this courier">'+
+        v.toFixed(1)+'%</span>':v.toFixed(1)+'%';},
+      xl:function(v){return +(v||0).toFixed(2);},
+      /* recomputed from totals - averaging per-courier percentages would weight
+         a 2-order courier the same as a 35-order one */
+      totalOf:function(rs){
+        var o=rs.reduce(function(a,r){return a+r.orders;},0);
+        var c=rs.reduce(function(a,r){return a+r.cod;},0);
+        return o?(c/o*100).toFixed(1)+'%':'—';}},
+     Object.assign({k:'rev',label:'Revenue'},C_MONEY),
+     Object.assign({k:'codRev',label:'COD Revenue'},C_MONEY),
+     Object.assign({k:'preRev',label:'Prepaid Revenue'},C_MONEY)],
+    rows,'No courier data in this range.',{name:'Courier Split',totals:1});
 }
 function tblStockCat(){
   var m={};
