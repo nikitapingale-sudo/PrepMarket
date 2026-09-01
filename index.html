@@ -997,18 +997,31 @@ function withClickSnapshot(d){
 }
 
 /**
- * Conversion data comes from a Conversion_Raw sheet tab when one exists, so it
- * stays user-updatable. Until then the committed CSV export seeds the page -
- * the source is labelled on screen either way, so a stale seed can't be
- * mistaken for live data.
+ * Conversion data is owned by the Prepmarket_Conversion sheet tab, so pasting a
+ * fresh export there updates the dashboard within a refresh.
+ *
+ * The committed CSV seed is used two ways: as the whole dataset if the tab is
+ * ever missing, and otherwise only to backfill days EARLIER than the tab's
+ * first row. Restricting it to earlier days matters - if the seed could also
+ * fill gaps inside the tab's own range, deleting a row from the sheet would
+ * silently resurrect the old figure.
  */
 function withConversionSeed(d){
-  if((d.conversion||[]).length){d.conversionSource='sheet';return Promise.resolve(d);}
+  var sheet=(d.conversion||[]).slice();
   return fetch('conversion-seed.json',{cache:'no-store'})
     .then(function(r){return r.ok?r.json():null;})
     .then(function(s){
-      if(s&&s.rows&&s.rows.length){
-        d.conversion=s.rows;
+      var seed=(s&&s.rows)||[];
+      if(sheet.length){
+        d.conversionSource='sheet';
+        var earliest=sheet.reduce(function(a,r){return (!a||r.day<a)?r.day:a;},null);
+        var older=seed.filter(function(r){return r.day<earliest;});
+        if(older.length){
+          d.conversion=older.concat(sheet);
+          d.conversionBackfill=older.length;
+        }
+      }else if(seed.length){
+        d.conversion=seed;
         d.conversionSource='seed';
         d.conversionSeedAt=s.generatedAt;
       }
@@ -2486,11 +2499,13 @@ function renderConversion(){
   var srcNode=el('cnvSource');
   srcNode.className='pill '+(DATA.conversionSource==='sheet'?'green':'amber');
   srcNode.textContent=DATA.conversionSource==='sheet'
-    ? 'from Conversion_Raw tab'
+    ? 'live from Prepmarket_Conversion'+
+      (DATA.conversionBackfill?' · +'+DATA.conversionBackfill+'d history':'')
     : 'seed export'+(DATA.conversionSeedAt?' · '+DATA.conversionSeedAt:'');
   srcNode.title=DATA.conversionSource==='sheet'
-    ? 'Live from the Conversion_Raw sheet tab.'
-    : 'From the committed CSV export. Paste fresh data into a Conversion_Raw tab to keep it current.';
+    ? 'Read live from the Prepmarket_Conversion sheet tab on every refresh.'+
+      (DATA.conversionBackfill?' Earlier days come from the committed CSV history.':'')
+    : 'The Prepmarket_Conversion tab could not be read, so this is the committed CSV export.';
 
   paintKpis('cnvKpis',[
     {lab:'Sessions',v:sess,f:fmtN,sub:C.length+' days',

@@ -39,7 +39,7 @@ const TABS = {
   stock: "Stock_Raw",
   returns: "Pending Returns report",
   clicks: "Banner_Clicks",
-  conversion: "Conversion_Raw",
+  conversion: "Prepmarket_Conversion",
 };
 
 /* ---------- gviz fetch: returns [{header: value, ...}, ...] ---------- */
@@ -408,7 +408,7 @@ async function loadClicks() {
 }
 
 /**
- * "Conversion_Raw" - the Shopify conversion-rate breakdown export.
+ * "Prepmarket_Conversion" - the Shopify conversion-rate breakdown export.
  * Column names are taken straight from that CSV so the export can be pasted in
  * unchanged. Orders come from "Sessions that completed checkout"; the export's
  * own Conversion rate column is ignored because the dashboard recomputes rates
