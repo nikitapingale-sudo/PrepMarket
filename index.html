@@ -53,7 +53,8 @@
   header h1 .grad{background:linear-gradient(90deg,var(--cyan),var(--violet));
     -webkit-background-clip:text;background-clip:text;color:transparent}
   header .sub{font-size:12px;color:var(--mute);margin-top:3px}
-  #fresh{margin-left:8px;font-size:11px;font-weight:800;border-radius:99px;padding:2px 9px;border:1px solid}
+  #fresh{margin-left:8px;font-size:11px;font-weight:800;border-radius:99px;padding:2px 9px;
+    border:1px solid;white-space:nowrap}
   #fresh.ok{color:var(--green);background:rgba(52,211,153,.1);border-color:rgba(52,211,153,.35)}
   #fresh.warn{color:var(--amber);background:rgba(251,191,36,.1);border-color:rgba(251,191,36,.35)}
   #fresh.old{color:var(--red);background:rgba(248,113,113,.1);border-color:rgba(248,113,113,.35)}
@@ -295,9 +296,57 @@
     .sk,.live i,#reload.spinning svg,.ticker,.kpi,.card,.pane{animation:none}
     html{scroll-behavior:auto}
   }
+  /* ---------- phones ----------
+     Measured at 390px: header + filters + tabs consumed 551px (65%) of the
+     screen before a single number appeared, and the 7-button date chipset
+     overflowed by 23px. Chrome is trimmed and the filters collapse behind a
+     toggle so content starts near the top. */
+  .mfilter{display:none}
   @media (max-width:640px){
-    header h1{font-size:15px}.kpi .val{font-size:22px}
     header,.filters,.tabs,main,footer,#loader{padding-left:13px;padding-right:13px}
+    header{padding-top:11px;padding-bottom:9px}
+    header h1{font-size:14px;line-height:1.25}
+    /* let the freshness pill drop to its own line instead of splitting mid-phrase */
+    header .sub{font-size:10.5px;margin-top:3px;display:flex;flex-wrap:wrap;
+      align-items:center;gap:4px 6px}
+    #fresh{margin-left:0}
+    .meta-extra{display:none}          /* OMS/WMS labels are desktop-only detail */
+    .logo{width:32px;height:32px;font-size:14px;border-radius:9px}
+    #countdown{display:none}
+    .hright{gap:6px}
+    .btn{padding:7px 11px;font-size:12px}
+    .live{padding:5px 10px;letter-spacing:.1em}
+
+    .mfilter{display:flex;align-items:center;gap:9px}
+    .filters{padding:9px 13px}
+    .filters .row{display:none}         /* collapsed by default on a phone */
+    .filters.open .row{display:flex;margin-top:9px}
+    .filters.open .row+.row{margin-top:7px}
+    #fCount{font-weight:800;color:var(--violet)}
+    .chipset{flex-wrap:wrap}            /* stops the 7 presets overflowing */
+    .chipset button{padding:6px 11px}
+    .ms,.ms-btn,select,input[type=search]{max-width:100%}
+    .filters .row>input[type=search]{min-width:0;width:100%;flex:1 1 100%}
+    .ms-panel{min-width:0;width:calc(100vw - 34px);max-width:none}
+
+    .tabs button{padding:11px 12px;font-size:13px}
+    /* two per row: a single column meant ~1,800px of scrolling for 12 KPIs */
+    .kpis{grid-template-columns:repeat(2,1fr);gap:9px}
+    .kpi{padding:12px 11px}
+    .kpi .val{font-size:19px;margin-top:5px}
+    .kpi .lab{font-size:9.5px;letter-spacing:.08em}
+    .kpi .sub{font-size:10.5px}
+    .kpi .spark{height:22px;margin-top:7px}
+    .delta{font-size:10px;padding:2px 7px}
+    .card{padding:14px}
+    .card h2{font-size:14px}
+    .chartbox{height:250px}
+    .chartbox.sm{height:220px}
+    .ins{padding:11px}
+  }
+  /* very small phones: one column, values would otherwise clip */
+  @media (max-width:340px){
+    .kpis{grid-template-columns:1fr}
   }
   @media (min-width:1500px){
     header,.filters,.tabs,main,#loader{padding-left:32px;padding-right:32px}
@@ -321,7 +370,7 @@
       <div class="logo">P</div>
       <div>
         <h1>PREPMARKET <span class="grad">ORDERS INTELLIGENCE HUB</span></h1>
-        <div class="sub">preponline.in &middot; OMS: EasyEcom &middot; WMS: AajSwift &middot; <span id="gen">connecting&hellip;</span><span id="fresh"></span></div>
+        <div class="sub"><span class="meta-extra">preponline.in &middot; OMS: EasyEcom &middot; WMS: AajSwift &middot; </span><span id="gen">connecting&hellip;</span><span id="fresh"></span></div>
       </div>
     </div>
     <div class="hright">
@@ -344,6 +393,14 @@
 </div>
 
 <div class="filters" id="filterBar">
+  <!-- phone-only: filters collapse behind this so they don't eat the screen -->
+  <div class="mfilter">
+    <button class="btn ghost" id="fToggle" aria-expanded="false">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 5h18M6 12h12M10 19h4"/></svg>
+      Filters <span id="fCount"></span>
+    </button>
+    <span id="mfSummary" style="font-size:11.5px;color:var(--mute);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+  </div>
   <div class="row">
     <div class="chipset" id="presets">
       <button data-p="today">Today</button>
@@ -827,6 +884,30 @@ function syncStick(){
 }
 window.addEventListener('resize',syncStick);
 
+/* ---------- phone filter drawer ---------- */
+el('fToggle').onclick=function(){
+  var bar=el('filterBar'),open=bar.classList.toggle('open');
+  this.setAttribute('aria-expanded',open?'true':'false');
+  syncStick();
+};
+/**
+ * With the filters collapsed on a phone, the bar still has to say what is being
+ * applied - otherwise a filtered dashboard looks like an unfiltered one.
+ */
+function syncMobileFilterSummary(){
+  var parts=[],n=0;
+  [['stage','Status'],['ship','Shipping'],['pay','Payment'],['state','State'],['cat','Category']]
+    .forEach(function(p){
+      var s=F[p[0]]||[];
+      if(s.length){n++;parts.push(p[1]+': '+(s.length===1?s[0]:s.length));}
+    });
+  if(F.q){n++;parts.push('"'+F.q+'"');}
+  var presetLabel=({today:'Today',yday:'Yesterday','7d':'Last 7 days','30d':'Last 30 days',
+    '90d':'Last 90 days',mtd:'Month to date',all:'All time',custom:'Custom range'})[F.preset]||F.preset;
+  el('fCount').textContent=n?'('+n+')':'';
+  el('mfSummary').textContent=presetLabel+(parts.length?' · '+parts.join(' · '):'');
+}
+
 /* ---------- tabs (hash-linkable, so a view can be shared) ---------- */
 var TABS=['overview','sales','ops','returns','clicks','funnel','inventory','explorer'];
 function showTab(t){
@@ -1286,6 +1367,7 @@ function daysInRange(){
 /* ============================ RENDER ============================ */
 function render(){
   drawFilterChips();
+  syncMobileFilterSummary();
 
   var days=daysInRange();
   var O=ordersIn(F.from,F.to), Cc=cancIn(F.from,F.to);
