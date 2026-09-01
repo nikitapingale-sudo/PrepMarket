@@ -32,6 +32,17 @@ function getSheetId() {
   return id;
 }
 
+/**
+ * Inventory lives in its own spreadsheet. Falls back to the main SHEET_ID so a
+ * missing variable reads the primary sheet rather than throwing.
+ *
+ *   Vercel : Project Settings > Environment Variables > INVENTORY_SHEET_ID
+ *   Local  : INVENTORY_SHEET_ID=... in .env.local
+ */
+function getInventorySheetId() {
+  return (process.env.INVENTORY_SHEET_ID || "").trim() || getSheetId();
+}
+
 const TABS = {
   orders: "Orders_Raw",
   cancellations: "Cancellations_Raw",
@@ -40,12 +51,13 @@ const TABS = {
   returns: "Pending Returns report",
   clicks: "Banner_Clicks",
   conversion: "Prepmarket_Conversion",
+  inventory: "Inventory Bifurcation",
 };
 
 /* ---------- gviz fetch: returns [{header: value, ...}, ...] ---------- */
-async function fetchTab(sheetName) {
+async function fetchTab(sheetName, sheetId) {
   const url =
-    `https://docs.google.com/spreadsheets/d/${getSheetId()}/gviz/tq` +
+    `https://docs.google.com/spreadsheets/d/${sheetId || getSheetId()}/gviz/tq` +
     `?tqx=out:json&headers=1&sheet=${encodeURIComponent(sheetName)}`;
   const res = await fetch(url, { redirect: "follow" });
   const text = await res.text();
