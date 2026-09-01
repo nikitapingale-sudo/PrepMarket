@@ -46,9 +46,19 @@ if ($Status) {
 # npm is a .cmd shim, so it must be invoked through cmd.exe
 $cmd = "/c cd /d `"$Project`" && npm run publish-clicks >> `"$LogFile`" 2>&1"
 
+# `powershell -File script.ps1 -At '09:00','12:00'` arrives as ONE string
+# "09:00,12:00", which New-ScheduledTaskTrigger cannot parse. Split it back out.
+$times = @($At | ForEach-Object { $_ -split '\s*,\s*' } | Where-Object { $_ })
+
+$parsed = @()
+foreach ($t in $times) {
+    try { $parsed += [datetime]::ParseExact($t.Trim(), 'HH:mm', $null) }
+    catch { Write-Error "Not a valid 24-hour time: '$t'. Use HH:mm, e.g. 09:00."; exit 1 }
+}
+
 $action    = New-ScheduledTaskAction -Execute "cmd.exe" -Argument $cmd -WorkingDirectory $Project
 # one daily trigger per requested time
-$trigger   = @($At | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $_ })
+$trigger   = @($parsed | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $_ })
 # Run only when a network is available, and don't fight the battery saver -
 # a missed run simply catches up on the next one.
 $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable `
@@ -56,12 +66,25 @@ $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable `
                 -MultipleInstances IgnoreNew `
                 -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
 
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
-    -Settings $settings -Description "Runs the Trino banner-click query and publishes the result to the PrepMarket dashboard." `
-    -Force | Out-Null
+try {
+    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
+        -Settings $settings -Description "Runs the Trino banner-click and funnel queries, then publishes the result to the PrepMarket dashboard." `
+        -Force -ErrorAction Stop | Out-Null
+} catch {
+    Write-Error "Could not register the task: $($_.Exception.Message)"
+    exit 1
+}
+
+# Never report success without confirming it - an earlier version printed
+# "Installed" even when registration had failed, leaving no job scheduled.
+$check = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if (-not $check -or $check.Triggers.Count -ne $parsed.Count) {
+    Write-Error "Registration did not stick: expected $($parsed.Count) triggers, found $($check.Triggers.Count)."
+    exit 1
+}
 
 Write-Output "Installed: $TaskName"
-Write-Output "  runs daily at: $($At -join ', ')"
+Write-Output "  runs daily at: $(($parsed | ForEach-Object { $_.ToString('HH:mm') }) -join ', ')"
 Write-Output "  project : $Project"
 Write-Output "  log     : $LogFile"
 Write-Output ""
