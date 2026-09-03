@@ -50,7 +50,11 @@ const TABS = {
   returns: "Pending Returns report",
   clicks: "Banner_Clicks",
   conversion: "Prepmarket_Conversion",
-  inventory: "Inventory Bifurcation",
+  // The real tab name carries a trailing space. Both spellings are tried
+  // because gviz answers a DIFFERENT sheet when the name does not match
+  // exactly, rather than erroring - asking for "Inventory Bifurcation"
+  // silently returned the "AAJ WH" tab and looked like valid data.
+  inventory: ["Inventory Bifurcation ", "Inventory Bifurcation"],
 };
 
 /* ---------- gviz fetch: returns [{header: value, ...}, ...] ---------- */
@@ -97,6 +101,40 @@ async function fetchTab(sheetName, sheetId) {
       return o;
     })
     .filter((o) => Object.values(o).some((v) => v !== null && v !== ""));
+}
+
+/**
+ * Try each candidate tab name and accept the first whose columns actually
+ * contain `requiredCol`. gviz does not error on an unknown sheet name - it
+ * quietly serves a different one - so the returned columns are the only
+ * reliable proof that the right tab came back.
+ */
+async function fetchTabAny(names, sheetId, requiredCol) {
+  const list = Array.isArray(names) ? names : [names];
+  let lastErr = null;
+  for (const name of list) {
+    let rows;
+    try {
+      rows = await fetchTab(name, sheetId);
+    } catch (e) {
+      lastErr = e.message;
+      continue;
+    }
+    if (!rows.length) {
+      lastErr = `Tab "${name}" returned no rows.`;
+      continue;
+    }
+    if (requiredCol) {
+      const want = squash(requiredCol);
+      const has = Object.keys(rows[0]).some((k) => squash(k) === want);
+      if (!has) {
+        lastErr = `Tab "${name}" has no "${requiredCol}" column — Google may have served a different tab.`;
+        continue;
+      }
+    }
+    return { rows, name, error: null };
+  }
+  return { rows: [], name: null, error: lastErr };
 }
 
 /* ---------- value helpers ---------- */
@@ -594,9 +632,8 @@ export async function buildPayload() {
     loadFunnel(),
     fetchTab(TABS.conversion).catch(() => []),
     // capture the reason rather than swallowing it - the Inventory page shows it
-    fetchTab(TABS.inventory, getInventorySheetId())
-      .then((rows) => ({ rows, error: null }))
-      .catch((e) => ({ rows: [], error: e.message })),
+    fetchTabAny(TABS.inventory, getInventorySheetId(), "AAJ Warehouse")
+      .catch((e) => ({ rows: [], name: null, error: e.message })),
   ]);
 
   const now = new Date();
