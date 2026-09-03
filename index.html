@@ -231,6 +231,11 @@
   .tone-red{color:var(--red);font-weight:700}
   .tone-amber{color:var(--amber);font-weight:700}
   .tone-green{color:var(--green);font-weight:700}
+  .tone-mute{color:var(--mute)}
+  .matchnote{margin:0 0 11px;padding:8px 11px;border-radius:9px;font-size:11.5px;line-height:1.55;
+    border:1px solid var(--line2);background:rgba(120,140,190,.08);color:var(--mute)}
+  .matchnote b{color:var(--txt)}
+  .matchnote.warn{border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.09)}
   .overflow{overflow-x:auto}
   footer{padding:0 20px 30px;color:var(--mute);font-size:11.5px;text-align:center}
 
@@ -753,12 +758,20 @@
     </div>
 
     <div class="card">
-      <h2>Stock alerts <span class="tag">out of stock &amp; under 20 units</span><span class="spacer"></span><button class="xls" data-xls="tblStock">&#8681; EXCEL</button></h2>
-      <div class="overflow" id="tblStock"></div>
+      <h2>Out of stock <span class="tag" id="oosTag"></span><span class="spacer"></span><button class="xls" data-xls="tblOOS">&#8681; EXCEL</button></h2>
+      <div class="overflow" id="tblOOS"></div>
+      <div class="pager" id="pgOOS"></div>
     </div>
 
     <div class="card">
-      <h2>Full stock ledger <span class="tag">with days of cover from current sales rate</span><span class="spacer"></span><button class="xls" data-xls="tblStockAll">&#8681; EXCEL</button></h2>
+      <h2>Low stock <span class="tag" id="lowTag"></span><span class="spacer"></span><button class="xls" data-xls="tblStock">&#8681; EXCEL</button></h2>
+      <div class="overflow" id="tblStock"></div>
+      <div class="pager" id="pgLow"></div>
+    </div>
+
+    <div class="card">
+      <h2>Full stock ledger <span class="tag">qty sold, stock on hand, DRR and DOH</span><span class="spacer"></span><button class="xls" data-xls="tblStockAll">&#8681; EXCEL</button></h2>
+      <div class="matchnote" id="invMatchNote"></div>
       <div class="overflow" id="tblStockAll"></div>
       <div class="pager" id="pgStockAll"></div>
     </div>
@@ -981,6 +994,7 @@ function showBanner(msg){
 }
 function applyData(d){
   DATA=d;
+  SKUIDX=null;JOINABLE=null;   /* rebuilt lazily against the new stock + catalogue */
   DATA.orders=DATA.orders||[];DATA.cancellations=DATA.cancellations||[];
   DATA.aging=DATA.aging||[];DATA.stock=DATA.stock||[];
   DATA.clicks=DATA.clicks||[];DATA.funnel=DATA.funnel||[];
@@ -1587,6 +1601,12 @@ function render(){
   var oneSite=SN.filter(function(r){
     return r.available>0&&((r.aaj||0)===0||(r.prep||0)===0);}).length;
   var whOnly=drillWarehouse();
+  var invSold=soldMap(O);
+  var invDrr=invSold.placed/Math.max(1,span);
+  var invJoin=joinableSkus();
+  var invCovStock=sum(SN.filter(function(r){return invJoin[r.sku];}),
+    function(r){return r.available;});
+  var invDoh=invDrr>0?invCovStock/invDrr:null;
   var stockAllSites=sum(DATA.stock,function(r){return r.available;});
   function whSub(units){
     return whOnly
@@ -1615,6 +1635,22 @@ function render(){
       a1:'var(--red)',a2:'var(--red)',gl:'rgba(248,113,113,.3)',d:''},
     {lab:'Low Stock',v:lowStock-oos,f:fmtN,sub:'1-19 units left',
       a1:'var(--amber)',a2:'var(--red)',gl:'rgba(251,191,36,.25)',d:''},
+    /* portfolio DRR is the sum of what actually moved, not an average of the
+       per-SKU rates - averaging rates would weight a 1-unit SKU like a 100 */
+    {lab:'Qty Sold',v:invSold.placed,f:fmtN,
+      sub:whOnly?'all sites — orders do not record which one shipped'
+        :(invSold.unplaced?fmtN(invSold.unplaced)+' more units could not be matched'
+          :'units attributed to a stocked SKU'),
+      a1:'var(--green)',a2:'var(--cyan)',gl:'rgba(52,211,153,.3)',d:''},
+    {lab:'DRR',v:invSold.placed/Math.max(1,span),f:function(n){return n.toFixed(1);},
+      sub:(whOnly?'all sites · ':'')+'units/day across '+span+' day'+(span>1?'s':''),
+      a1:'var(--cyan)',a2:'var(--blue)',gl:'var(--glow-cyan)',d:''},
+    {lab:'DOH',v:invDoh==null?0:invDoh,
+      f:function(n){return invDoh==null?'—':n.toFixed(0)+'d';},
+      sub:invDoh==null?'nothing sold in this window'
+        :(whOnly?fmtN(invCovStock)+' units here ÷ the all-site run rate'
+          :'on '+fmtN(invCovStock)+' units of matched stock'),
+      a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:''},
     {lab:'Single-Site SKUs',v:oneSite,f:fmtN,
       sub:'stocked in only one warehouse',
       a1:'var(--amber)',a2:'var(--violet)',gl:'rgba(251,191,36,.25)',d:''}
@@ -1657,7 +1693,7 @@ function render(){
   tblTop5(O);
   tblSku(O);tblState(O);tblCity(O);tblChannel(O,Cc);tblCat(O);
   tblCanc(Cc);tblAging(agingRows);
-  tblStock(O,span);tblStockAll(O,span);
+  tblOOS(O,span);tblStock(O,span);tblStockAll(O,span);drawMatchNote(O);
   tblExplorer(O);tblDaily(days,byDay);
 }
 
@@ -2832,7 +2868,7 @@ function drawInsights(s){
       (risk.length>1?'s':'')+'</b> will run out within 7 days at the current rate — '+
       esc(risk.slice(0,2).map(function(r){return r.product+' ('+r.cover+'d)';}).join(', '))+'.');
 
-    var dead=sr.filter(function(r){return r.available>20&&r.velocity===0;});
+    var dead=sr.filter(function(r){return r.available>20&&r.sold===0;});
     if(dead.length)add('Inventory','\u{1F4A4}','var(--mute)','<b>'+dead.length+' SKUs</b> hold stock '+
       'but sold nothing in this window'+
       (sum(dead,function(r){return r.value;})?' — '+fmtK(sum(dead,function(r){return r.value;}))+
@@ -3796,30 +3832,127 @@ function tblAging(rows){
  * scientific notation, so it cannot be matched against the inventory sheet;
  * pid (the intact EAN) can be.
  */
-function velocityMap(O,span){
-  var m={};
-  O.forEach(function(r){
-    [r.pid,r.sku,r.ean].forEach(function(k){
-      if(k)m[k]=(m[k]||0)+r.qty;
-    });
+/**
+ * Resolves an order line to an inventory SKU.
+ *
+ * The two sheets share no reliable identifier. Orders_Raw stores SKU as a
+ * NUMBER, so 8704617775239 arrives as 8704620000000 - and 8704627343495 and
+ * 8704629145735 both round to 8704630000000, so the damage cannot be undone.
+ * The orders' EAN is full precision but is a different code (9789368...) from
+ * the inventory sheet's SKU (8704...).
+ *
+ * So we try, in order of how much we trust it:
+ *   1. the EAN or SKU matching an inventory SKU outright
+ *   2. the catalogue sheet's short product name ("Physical Chemistry")
+ *   3. the inventory title matching the order's product name exactly
+ *
+ * Deliberately no substring matching. It looked tempting and it is wrong:
+ * "Organic Chemistry" is a substring of "Cengage JEE (Advanced) INORGANIC
+ * Chemistry Part 1", so it silently attributed one book's sales to another.
+ * An unmatched SKU reporting "no sales data" is far better than a matched one
+ * reporting somebody else's numbers.
+ */
+var SKUIDX=null;
+function skuIndex(){
+  if(SKUIDX)return SKUIDX;
+  var byId={},byName={};
+  (DATA.stock||[]).forEach(function(r){
+    var sku=String(r.sku);
+    byId[sku]=sku;
+    var t=nkey(r.product);if(t&&!byName[t])byName[t]=sku;
   });
-  Object.keys(m).forEach(function(k){m[k]=m[k]/Math.max(1,span);});
-  return m;
+  /* catalogue names win over titles: they are curated for exactly this join */
+  var cat=DATA.skuNames||{};
+  Object.keys(cat).forEach(function(sku){
+    if(!byId[sku])return;              /* a name for a SKU we do not stock */
+    var n=nkey(cat[sku]);if(n)byName[n]=sku;
+  });
+  SKUIDX={byId:byId,byName:byName};
+  return SKUIDX;
 }
+function nkey(v){return String(v==null?'':v).toLowerCase().replace(/[^a-z0-9]+/g,'');}
+function resolveSku(r){
+  var ix=skuIndex();
+  if(r.ean&&ix.byId[String(r.ean)])return ix.byId[String(r.ean)];
+  if(r.sku&&ix.byId[String(r.sku)])return ix.byId[String(r.sku)];
+  var n=nkey(r.product);
+  return (n&&ix.byName[n])||null;
+}
+
+/**
+ * SKUs whose sales we could actually observe, whether or not they sold.
+ *
+ * Being present in the title index does NOT count: every stock row puts its own
+ * title in there, so using that would mark all 49 SKUs "covered" and report a
+ * confident 0 sold for SKUs no order ever mentions. The evidence has to come
+ * from the order side - a curated catalogue name, or an order product that
+ * genuinely resolves to this SKU.
+ */
+var JOINABLE=null;
+function joinableSkus(){
+  if(JOINABLE)return JOINABLE;
+  var ix=skuIndex(),set={};
+  var cat=DATA.skuNames||{};
+  Object.keys(cat).forEach(function(sku){if(ix.byId[sku])set[sku]=1;});
+  /* every product name the orders actually use, across all time */
+  (DATA.orders||[]).forEach(function(r){
+    var sku=resolveSku(r);if(sku)set[sku]=1;});
+  JOINABLE=set;
+  return set;
+}
+
+/** Units sold per inventory SKU over the window, plus what could not be placed. */
+function soldMap(O){
+  var m={},placed=0,unplaced=0,names={};
+  O.forEach(function(r){
+    var sku=resolveSku(r);
+    if(sku){m[sku]=(m[sku]||0)+(r.qty||0);placed+=r.qty||0;}
+    else{unplaced+=r.qty||0;if(r.product)names[r.product]=(names[r.product]||0)+(r.qty||0);}
+  });
+  return {units:m,placed:placed,unplaced:unplaced,names:names};
+}
+/**
+ * One row per SKU with sales joined on.
+ *
+ * DRR (daily run rate) = units sold in the window / days in the window.
+ * DOH (days on hand)   = units available / DRR.
+ *
+ * "sold" is null, not 0, when the SKU could not be joined to any order line.
+ * The difference matters: 0 means "stocked and not selling" (a real signal to
+ * act on) while null means "we cannot tell" - and showing the latter as 0 would
+ * make dead stock and unmatched stock look identical.
+ */
 function stockRows(O,span){
-  var vel=velocityMap(O,span);
+  var sold=soldMap(O).units, joinable=joinableSkus(), days=Math.max(1,span);
   return stockNow().map(function(r){
-    var v=vel[r.sku]||0;
+    var known=!!joinable[r.sku];
+    var units=known?(sold[r.sku]||0):null;
+    var drr=units==null?null:units/days;
     return Object.assign({},r,{
-      velocity:+v.toFixed(2),
-      cover:v>0?+(r.available/v).toFixed(1):null,
+      sold:units,
+      drr:drr==null?null:+drr.toFixed(2),
+      doh:(drr!=null&&drr>0)?+(r.available/drr).toFixed(1):null,
+      /* kept: older views and the insight block read these names */
+      velocity:drr==null?0:+drr.toFixed(2),
+      cover:(drr!=null&&drr>0)?+(r.available/drr).toFixed(1):null,
       value:r.available*(r.mrp||0)});});
 }
-function coverFmt(v){
-  if(v==null)return '<span style="color:var(--mute)">no sales</span>';
-  return v<=3?'<span class="tone-red">'+v+'d</span>'
-    :v<=10?'<span class="tone-amber">'+v+'d</span>'
-    :'<span class="tone-green">'+v+'d</span>';
+
+/** "—" for unknown, "no sales" for a genuine zero: they are different facts. */
+function drrFmt(v,r){
+  if(v==null)return '<span class="tone-mute" title="This SKU could not be matched to any order line">—</span>';
+  return v>0?v.toFixed(2):'<span class="tone-mute">0</span>';
+}
+function dohFmt(v,r){
+  if(r.sold==null)return '<span class="tone-mute" title="No sales match for this SKU">—</span>';
+  if(!r.available)return '<span class="tone-red" title="nothing on hand">0d</span>';
+  if(v==null)return '<span class="tone-mute" title="stocked but nothing sold in this window">no sales</span>';
+  return v<=7?'<span class="tone-red">'+v+'d</span>'
+    :v<=21?'<span class="tone-amber">'+v+'d</span>':'<span class="tone-green">'+v+'d</span>';
+}
+function soldFmt(v){
+  if(v==null)return '<span class="tone-mute">—</span>';
+  return v>0?String(v):'<span class="tone-mute">0</span>';
 }
 function availFmt(v){
   return v<=0?'<span class="tone-red">'+v+'</span>'
@@ -3834,7 +3967,8 @@ function tblStock(O,span){
   /* drilled into one site, the other site's column is all zeros and the total
      just repeats the first - so drop both rather than pad the table out */
   var wh=drillWarehouse();
-  var cols=[{k:'sku',label:'SKU'},{k:'product',label:'Title'}];
+  var cols=[{k:'sku',label:'SKU'},{k:'product',label:'Title'},
+    {k:'sold',label:'Qty Sold',r:1,fmt:soldFmt,xl:function(v){return v==null?'':v;}}];
   if(!wh){
     cols.push({k:'aaj',label:'AAJ',r:1,fmt:whFmt},
               {k:'prep',label:'PrepOnline',r:1,fmt:whFmt},
@@ -3842,33 +3976,97 @@ function tblStock(O,span){
   }else{
     cols.push({k:'available',label:'Units at '+wh,r:1,fmt:availFmt});
   }
-  cols.push({k:'velocity',label:'Units/Day',r:1},
-            {k:'cover',label:'Days Cover',r:1,fmt:coverFmt});
+  cols.push({k:'drr',label:'DRR',r:1,fmt:drrFmt,xl:function(v){return v==null?'':v;},
+              totalOf:function(rs){
+                var u=rs.reduce(function(a,r){return a+(r.sold||0);},0);
+                return (u/Math.max(1,span)).toFixed(2);}},
+            {k:'doh',label:'DOH',r:1,fmt:dohFmt,xl:function(v){return v==null?'':v;},noTotal:1});
   renderTable('tblStock',cols,
-    stockRows(O,span).filter(function(r){return r.available<20;})
+    stockRows(O,span).filter(function(r){return r.available>0&&r.available<20;})
       .sort(function(a,b){return a.available-b.available;}),
-    'No low-stock SKUs — or no inventory sheet loaded yet.',{name:'Stock Alerts',totals:1,
+    'Nothing between 1 and 19 units.',
+    {name:'Low Stock',totals:1,pageSize:15,pager:'pgLow',
      drill:function(r){drillTo('invsku',r.sku,r.product||r.sku);}});
+  var n=stockRows(O,span).filter(function(r){return r.available>0&&r.available<20;}).length;
+  el('lowTag').textContent=n?fmtN(n)+' SKUs at 1–19 units':'none';
+}
+
+/**
+ * Out of stock is its own card rather than the top of a mixed list: it is the
+ * only one of the two you cannot sell from, so it should not need scrolling
+ * past low stock to find. Sorted by what it is costing you - a SKU that sold
+ * well and then hit zero matters more than one that never moved.
+ */
+function tblOOS(O,span){
+  var rows=stockRows(O,span).filter(function(r){return r.available<=0;})
+    .sort(function(a,b){return (b.sold||0)-(a.sold||0);});
+  var wh=drillWarehouse();
+  renderTable('tblOOS',
+    [{k:'sku',label:'SKU'},{k:'product',label:'Title'},
+     {k:'sold',label:'Qty Sold',r:1,fmt:soldFmt,xl:function(v){return v==null?'':v;}},
+     {k:'drr',label:'DRR',r:1,fmt:drrFmt,xl:function(v){return v==null?'':v;},
+      totalOf:function(rs){
+        var u=rs.reduce(function(a,r){return a+(r.sold||0);},0);
+        return (u/Math.max(1,span)).toFixed(2);}},
+     {k:'available',label:wh?('Units at '+wh):'Total Inventory',r:1,
+      fmt:function(){return '<span class="tone-red">0</span>';}}],
+    rows,
+    wh?('Nothing is out of stock at '+wh+'.'):'Nothing is fully out of stock.',
+    {name:'Out Of Stock',totals:1,pageSize:15,pager:'pgOOS',
+     drill:function(r){drillTo('invsku',r.sku,r.product||r.sku);}});
+  var lost=rows.filter(function(r){return (r.sold||0)>0;}).length;
+  el('oosTag').textContent=rows.length
+    ? fmtN(rows.length)+' SKUs at zero'+(lost?' · '+lost+' of them were selling':'')
+    : 'none';
+}
+
+/**
+ * Says out loud how much of the sales data could actually be attached to a SKU.
+ * Every DRR and DOH on this page depends on that join, and the join is only
+ * partial, so reporting the numbers without the coverage would overstate them.
+ */
+function drawMatchNote(O){
+  var host=el('invMatchNote');if(!host)return;
+  var m=soldMap(O), tot=m.placed+m.unplaced;
+  var S=stockNow(), joinable=joinableSkus();
+  var matched=S.filter(function(r){return joinable[r.sku];}).length;
+  if(!tot&&!S.length){host.style.display='none';return;}
+  host.style.display='block';
+  var full=matched===S.length&&!m.unplaced;
+  host.className='matchnote'+(full?'':' warn');
+  if(full){
+    host.innerHTML='All <b>'+fmtN(S.length)+'</b> SKUs are matched to sales. '+
+      'DRR = units sold ÷ '+fmtN(daysInRange().length)+' days in range; DOH = units on hand ÷ DRR.';
+    return;
+  }
+  var top=Object.keys(m.names).sort(function(a,b){return m.names[b]-m.names[a];}).slice(0,3);
+  host.innerHTML='<b>DRR and DOH cover '+fmtN(matched)+' of '+fmtN(S.length)+' SKUs.</b> '+
+    fmtN(m.unplaced)+' of '+fmtN(tot)+' units sold could not be tied to an inventory SKU'+
+    (top.length?' (largest: '+esc(top.map(function(t){return t+' — '+fmtN(m.names[t])+'u';}).join(', '))+')':'')+
+    '. Rows that could not be matched show <b>—</b> rather than 0, because "not known" '+
+    'and "not selling" are different things.<br>'+
+    'Cause: Orders_Raw stores SKU as a <b>number</b>, so 8704617775239 arrives as 8704620000000 '+
+    'and several SKUs collapse onto the same value. '+
+    'Fix: format that column as <b>Plain Text</b> in the Sheet and re-paste, and every row here joins exactly.';
 }
 function tblStockAll(O,span){
   var wh=drillWarehouse();
-  var cols=[{k:'sku',label:'SKU'},{k:'product',label:'Title'}];
+  var cols=[{k:'sku',label:'SKU'},{k:'product',label:'Title'},
+    {k:'sold',label:'Qty Sold',r:1,fmt:soldFmt,
+     xl:function(v){return v==null?'':v;}}];
   if(!wh){
     cols.push({k:'aaj',label:'AAJ Warehouse',r:1,fmt:whFmt},
       {k:'prep',label:'PrepOnline Warehouse',r:1,fmt:whFmt},
-      {k:'available',label:'Total Inventory',r:1,fmt:availFmt,bar:1},
-      {k:'aajShare',label:'AAJ %',r:1,
-       fmt:function(v){return v==null?'—':v.toFixed(0)+'%';},
-       xl:function(v){return v==null?'':+v.toFixed(1);},
-       totalOf:function(rs){
-         var a=sum(rs,function(r){return r.aaj||0;}),t=sum(rs,function(r){return r.available;});
-         return t?(a/t*100).toFixed(0)+'%':'—';}});
+      {k:'available',label:'Total Inventory',r:1,fmt:availFmt,bar:1});
   }else{
-    /* the share column would read 100% on every row under a warehouse drill */
     cols.push({k:'available',label:'Units at '+wh,r:1,fmt:availFmt,bar:1});
   }
-  cols.push({k:'velocity',label:'Units/Day',r:1},
-            {k:'cover',label:'Days Cover',r:1,fmt:coverFmt});
+  cols.push(
+    {k:'drr',label:'DRR',r:1,fmt:drrFmt,xl:function(v){return v==null?'':v;},
+     totalOf:function(rs){
+       var u=rs.reduce(function(a,r){return a+(r.sold||0);},0);
+       return (u/Math.max(1,span)).toFixed(2);}},
+    {k:'doh',label:'DOH',r:1,fmt:dohFmt,xl:function(v){return v==null?'':v;},noTotal:1});
   renderTable('tblStockAll',cols,
     stockRows(O,span).map(function(r){
       return Object.assign({},r,{

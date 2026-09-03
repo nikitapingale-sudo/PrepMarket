@@ -58,10 +58,17 @@ const TABS = {
 };
 
 /* ---------- gviz fetch: returns [{header: value, ...}, ...] ---------- */
+/**
+ * sheetName null asks for the spreadsheet's FIRST sheet deliberately, by
+ * omitting the parameter. Passing a name we know is wrong would get the same
+ * bytes - gviz falls back to sheet one for anything it cannot resolve - but it
+ * would read as a mistake rather than a decision.
+ */
 async function fetchTab(sheetName, sheetId) {
   const url =
     `https://docs.google.com/spreadsheets/d/${sheetId || getSheetId()}/gviz/tq` +
-    `?tqx=out:json&headers=1&sheet=${encodeURIComponent(sheetName)}`;
+    `?tqx=out:json&headers=1` +
+    (sheetName == null ? "" : `&sheet=${encodeURIComponent(sheetName)}`);
   const res = await fetch(url, { redirect: "follow" });
   const text = await res.text();
   // gviz wraps JSON:  google.visualization.Query.setResponse({...});
@@ -69,7 +76,8 @@ async function fetchTab(sheetName, sheetId) {
   const end = text.lastIndexOf("}");
   if (start < 0 || end < 0) {
     throw new Error(
-      `Sheet tab "${sheetName}" not readable. Is the Sheet shared as "Anyone with the link - Viewer"?`
+      `Sheet tab "${sheetName == null ? "(first sheet)" : sheetName}" not readable. ` +
+      `Is the Sheet shared as "Anyone with the link - Viewer"?`
     );
   }
   const payload = JSON.parse(text.slice(start, end + 1));
@@ -653,6 +661,40 @@ function normalizeInventory(raw) {
 }
 
 
+/**
+ * The catalogue sheet: stock SKU -> the SHORT product name the orders use.
+ *
+ * Why this exists: the two sources share no usable identifier. Orders_Raw's SKU
+ * column is stored as a number, so 8704617775239 arrives rounded to
+ * 8704620000000 - and several real SKUs round to the same value, so it cannot
+ * be reversed. The orders' EAN column is full precision but holds a different
+ * code (9789368...) from the inventory sheet's SKU (8704...). The one thing
+ * that does line up is the short product name ("Physical Chemistry"), which
+ * this sheet carries against the full-precision SKU.
+ *
+ * It is read from the inventory spreadsheet's FIRST sheet: gviz serves that for
+ * any tab name it does not recognise, so asking by name would be a lie. The
+ * column check below is what actually decides whether we got the right thing.
+ */
+async function loadSkuCatalogue() {
+  try {
+    const rows = await fetchTab(null, getInventorySheetId());
+    if (!rows.length) return {};
+    const first = rows[0];
+    const has = (n) => Object.keys(first).some((k) => squash(k) === squash(n));
+    if (!has("Product Name") || !has("SKU")) return {};
+    const out = {};
+    for (const r of rows) {
+      const sku = strip(pick(r, ["SKU", "sku"]));
+      const name = strip(pick(r, ["Product Name", "product_name"]));
+      if (sku && name) out[sku] = name;
+    }
+    return out;
+  } catch {
+    return {};   // the bridge is an enhancement; without it the page still works
+  }
+}
+
 /** Promise.all over an object, resolving to an object with the same keys. */
 async function allNamed(obj) {
   const keys = Object.keys(obj);
@@ -670,7 +712,7 @@ export async function buildPayload() {
    */
   const {
     ordersRaw, cancRaw, agingRaw, returnsRaw,
-    clicksResult, funnel, widgetProducts, convRaw, invResult,
+    clicksResult, funnel, widgetProducts, convRaw, invResult, skuNames,
   } = await allNamed({
     ordersRaw: fetchTab(TABS.orders),
     cancRaw: fetchTab(TABS.cancellations),
@@ -684,6 +726,7 @@ export async function buildPayload() {
     // capture the reason rather than swallowing it - the Inventory page shows it
     invResult: fetchTabAny(TABS.inventory, getInventorySheetId(), "AAJ Warehouse")
       .catch((e) => ({ rows: [], name: null, error: e.message })),
+    skuNames: loadSkuCatalogue(),
   });
 
   const now = new Date();
@@ -724,6 +767,7 @@ export async function buildPayload() {
 
   return {
     orders, cancellations, aging, stock, returns,
+    skuNames,
     clicks: clicksResult.rows,
     stockSource, stockError,
     funnel, widgetProducts,
