@@ -683,9 +683,14 @@
   <section class="pane" id="pane-inventory">
     <div class="kpis" id="invKpis"></div>
 
+    <div class="card">
+      <h2>Warehouse bifurcation <span class="tag" id="invSource"></span><span class="spacer"></span><button class="xls" data-xls="tblWarehouse">&#8681; EXCEL</button></h2>
+      <div class="overflow" id="tblWarehouse"></div>
+    </div>
+
     <div class="grid2">
-      <div class="card"><h2>Lowest stock SKUs</h2><div class="chartbox sm"><canvas id="stockChart"></canvas></div></div>
-      <div class="card"><h2>Stock units by category<span class="spacer"></span><button class="xls" data-xls="tblStockCat">&#8681; EXCEL</button></h2><div class="overflow" id="tblStockCat"></div></div>
+      <div class="card"><h2>Lowest stock SKUs <span class="tag">total across both</span></h2><div class="chartbox sm"><canvas id="stockChart"></canvas></div></div>
+      <div class="card"><h2>Stock split by warehouse</h2><div class="chartbox sm"><canvas id="whChart"></canvas></div></div>
     </div>
 
     <div class="card">
@@ -1501,22 +1506,29 @@ function render(){
   ]);
 
   var stockUnits=sum(DATA.stock,function(r){return r.available;});
-  var stockValue=sum(DATA.stock,function(r){return r.available*(r.mrp||0);});
+  var aajUnits=sum(DATA.stock,function(r){return r.aaj||0;});
+  var prepUnits=sum(DATA.stock,function(r){return r.prep||0;});
+  /* a SKU held in only one warehouse cannot be shipped from the other */
+  var oneSite=DATA.stock.filter(function(r){
+    return r.available>0&&((r.aaj||0)===0||(r.prep||0)===0);}).length;
   paintKpis('invKpis',[
-    {lab:'SKUs Tracked',v:DATA.stock.length,f:fmtN,sub:uniq(DATA.stock,function(r){return r.category;})+' categories',
+    {lab:'SKUs Tracked',v:DATA.stock.length,f:fmtN,
+      sub:fmtN(DATA.stock.filter(function(r){return r.available>0;}).length)+' with stock',
       a1:'var(--cyan)',a2:'var(--violet)',gl:'var(--glow-cyan)',d:''},
-    {lab:'Units On Hand',v:stockUnits,f:fmtN,sub:fmtN(sum(DATA.stock,function(r){return r.reserved;}))+' reserved',
+    {lab:'Total Inventory',v:stockUnits,f:fmtN,sub:'units across both warehouses',
       a1:'var(--green)',a2:'var(--cyan)',gl:'rgba(52,211,153,.3)',d:''},
-    {lab:'Stock Value',v:stockValue,f:fmtK,
-      sub:EST.stockEstimated?'est. from order prices (no MRP column)':'at list price',
-      a1:'var(--blue)',a2:'var(--green)',gl:'rgba(96,165,250,.25)',d:''},
-    {lab:'Out Of Stock',v:oos,f:fmtN,sub:'zero units available',
+    {lab:'AAJ Warehouse',v:aajUnits,f:fmtN,
+      sub:stockUnits?(aajUnits/stockUnits*100).toFixed(1)+'% of stock':'no stock',
+      a1:'var(--blue)',a2:'var(--cyan)',gl:'rgba(96,165,250,.25)',d:''},
+    {lab:'PrepOnline Warehouse',v:prepUnits,f:fmtN,
+      sub:stockUnits?(prepUnits/stockUnits*100).toFixed(1)+'% of stock':'no stock',
+      a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:''},
+    {lab:'Out Of Stock',v:oos,f:fmtN,sub:'zero units in either warehouse',
       a1:'var(--red)',a2:'var(--red)',gl:'rgba(248,113,113,.3)',d:''},
     {lab:'Low Stock',v:lowStock-oos,f:fmtN,sub:'1-19 units left',
       a1:'var(--amber)',a2:'var(--red)',gl:'rgba(251,191,36,.25)',d:''},
-    {lab:'Incoming',v:sum(DATA.stock,function(r){return r.toReceive;}),f:fmtN,
-      sub:fmtN(sum(DATA.stock,function(r){return r.damaged;}))+' damaged units',
-      a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:''}
+    {lab:'Single-Site SKUs',v:oneSite,f:fmtN,sub:'stocked in only one warehouse',
+      a1:'var(--amber)',a2:'var(--violet)',gl:'rgba(251,191,36,.25)',d:''}
   ]);
 
   el('rangeTag').textContent=F.from===F.to?fmtDay(F.from):fmtDay(days[0])+' → '+fmtDay(days[days.length-1]);
@@ -1527,7 +1539,8 @@ function render(){
     aov:aov,pAov:pAov,cod:cod,cancRate:cancRate,cancVal:cancVal,
     delivered:delivered,pending:pending,avgShip:avgShip,avgDel:avgDel,
     agingRows:agingRows,over7:over7,over3:over3,
-    oos:oos,lowStock:lowStock,stockUnits:stockUnits,stockValue:stockValue});
+    oos:oos,lowStock:lowStock,stockUnits:stockUnits,
+    aajUnits:aajUnits,prepUnits:prepUnits,oneSite:oneSite});
   buildTicker({O:O,days:days,sRev:sRev,rev:rev,pRev:pRev,nOrders:nOrders,units:units,
     aov:aov,cod:cod,cancRate:cancRate,pending:pending,over7:over7.length,oos:oos});
   drawTrend(days,byDay,pFrom,pTo,span);
@@ -1539,7 +1552,7 @@ function render(){
   drawStockCharts();
 
   /* mix tables (these replaced the doughnut charts) */
-  tblPayMix(O);tblCancBy(Cc);tblCourier(O);tblStockCat();
+  tblPayMix(O);tblCancBy(Cc);tblCourier(O);tblWarehouse();
 
   renderClicks(days);
   renderFunnel(days);
@@ -2719,12 +2732,28 @@ function drawInsights(s){
       (sum(dead,function(r){return r.value;})?' — '+fmtK(sum(dead,function(r){return r.value;}))+
       ' of capital sitting idle.':'.'));
 
+    /* ---- warehouse bifurcation ---- */
+    if(s.stockUnits&&(s.aajUnits||s.prepUnits)){
+      var aPc=s.aajUnits/s.stockUnits*100;
+      add('Inventory','\u{1F3E2}',Math.abs(aPc-50)>35?'var(--amber)':'var(--cyan)',
+        'Stock sits <b>'+aPc.toFixed(0)+'% at AAJ</b> and <b>'+(100-aPc).toFixed(0)+
+        '% at PrepOnline</b> ('+fmtN(s.aajUnits)+' vs '+fmtN(s.prepUnits)+' units)'+
+        (Math.abs(aPc-50)>35?' — heavily weighted to one site.':'.'));
+    }
+    if(s.oneSite)add('Inventory','\u{1F4CD}','var(--amber)','<b>'+fmtN(s.oneSite)+' SKUs</b> are '+
+      'stocked in only one warehouse — those cannot be fulfilled from the other if it runs dry.');
+
+    /* SKUs sitting entirely in the slower site while selling well */
+    var lop=stockRows(O,s.span).filter(function(r){
+      return r.velocity>0&&r.available>0&&((r.aaj||0)===0||(r.prep||0)===0);});
+    if(lop.length)add('Inventory','⚠','var(--red)','<b>'+lop.length+' selling SKU'+
+      (lop.length>1?'s are':' is')+'</b> held in a single warehouse — '+
+      esc(lop.slice(0,2).map(function(r){
+        return (r.product||r.sku)+' ('+((r.aaj||0)?'AAJ only':'PrepOnline only')+')';}).join(', '))+'.');
+
     var incoming=sum(DATA.stock,function(r){return r.toReceive;});
     if(incoming)add('Inventory','\u{1F69B}','var(--cyan)','<b>'+fmtN(incoming)+' units</b> are inbound '+
       'against '+fmtN(s.stockUnits)+' on hand.');
-    var damaged=sum(DATA.stock,function(r){return r.damaged;});
-    if(damaged)add('Inventory','\u{1F4A5}','var(--amber)','<b>'+fmtN(damaged)+' units</b> are marked '+
-      'damaged in the warehouse.');
   }
 
   el('insights').innerHTML=groupInsights(out);
@@ -3054,7 +3083,24 @@ function drawStockCharts(){
       scales:{x:{beginAtZero:true,ticks:{precision:0},grid:{color:T.grid}},y:{grid:{display:false}}},
       plugins:{legend:{display:false},tooltip:T.tt}}});
 
-  /* stock-by-category is now a table (tblStockCat), not a doughnut */
+  /* stacked split so you can see, per SKU, which warehouse actually holds it */
+  var top=DATA.stock.slice().sort(function(a,b){return b.available-a.available;}).slice(0,12);
+  killChart('whChart');
+  chartMsg('whChart',top.length?null:'&#128230;',top.length?null:'No inventory data.');
+  if(top.length)charts.whChart=new Chart(el('whChart'),{type:'bar',
+    data:{labels:top.map(function(r){
+        var p=r.product||r.sku;return p.length>22?p.slice(0,21)+'…':p;}),
+      datasets:[
+        {label:'AAJ',data:top.map(function(r){return r.aaj||0;}),
+          backgroundColor:hexA(cssVar('--blue'),.85),borderRadius:4,maxBarThickness:20,stack:'w'},
+        {label:'PrepOnline',data:top.map(function(r){return r.prep||0;}),
+          backgroundColor:hexA(cssVar('--violet'),.85),borderRadius:4,maxBarThickness:20,stack:'w'}
+      ]},
+    options:{maintainAspectRatio:false,indexAxis:'y',animation:{duration:600},
+      interaction:{mode:'index',intersect:false},
+      scales:{x:{stacked:true,beginAtZero:true,grid:{color:T.grid}},
+        y:{stacked:true,grid:{display:false}}},
+      plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8}},tooltip:T.tt}}});
 }
 
 /* ============================ TABLES ============================ */
@@ -3259,30 +3305,37 @@ function tblCourier(O){
      Object.assign({k:'preRev',label:'Prepaid Revenue'},C_MONEY)],
     rows,'No courier data in this range.',{name:'Courier Split',totals:1});
 }
-function tblStockCat(){
-  var m={};
-  DATA.stock.forEach(function(r){
-    var k=r.category||'Uncategorized';
-    m[k]=m[k]||{skus:0,units:0,value:0};
-    m[k].skus++;m[k].units+=r.available;m[k].value+=r.available*(r.mrp||0);});
-  var rows=Object.keys(m).map(function(k){return {key:k,skus:m[k].skus,units:m[k].units,value:m[k].value};});
-  var tot=rows.reduce(function(a,r){return a+r.units;},0);
-  rows.forEach(function(r){r.share=tot?r.units/tot*100:0;});
-  renderTable('tblStockCat',
-    [{k:'key',label:'Category'},
-     {k:'skus',label:'SKUs',r:1},
-     {k:'units',label:'Units',r:1,bar:1},
-     Object.assign({k:'value',label:'Stock Value'},C_MONEY),
-     Object.assign({k:'share',label:'% Units'},C_SHARE)],
-    rows.sort(function(a,b){return b.units-a.units;}),
-    'No stock report uploaded yet.',{name:'Stock By Category',totals:1});
+/** Which warehouse holds the stock, and how much of the catalogue each covers. */
+function tblWarehouse(){
+  var S=DATA.stock;
+  var tot=sum(S,function(r){return r.available;});
+  var rows=[
+    {key:'AAJ Warehouse',units:sum(S,function(r){return r.aaj||0;}),
+     skus:S.filter(function(r){return (r.aaj||0)>0;}).length},
+    {key:'PrepOnline Warehouse',units:sum(S,function(r){return r.prep||0;}),
+     skus:S.filter(function(r){return (r.prep||0)>0;}).length}
+  ];
+  rows.forEach(function(r){
+    r.share=tot?r.units/tot*100:0;
+    r.perSku=r.skus?r.units/r.skus:0;
+  });
+  renderTable('tblWarehouse',
+    [{k:'key',label:'Warehouse'},
+     {k:'units',label:'Units',r:1,bar:1,tot:fmtN},
+     Object.assign({k:'share',label:'% of Stock'},C_SHARE),
+     {k:'skus',label:'SKUs Stocked',r:1,tot:fmtN},
+     {k:'perSku',label:'Avg Units / SKU',r:1,
+      fmt:function(v){return v.toFixed(1);},xl:function(v){return +(v||0).toFixed(2);},
+      totalOf:function(rs){
+        var u=rs.reduce(function(a,r){return a+r.units;},0);
+        var k=rs.reduce(function(a,r){return a+r.skus;},0);
+        return k?(u/k).toFixed(1):'—';}}],
+    rows,'No inventory data.',{name:'Warehouse Bifurcation',totals:1});
+
+  el('invSource').textContent=DATA.stockSource==='inventory-bifurcation'
+    ? 'Inventory Bifurcation sheet' : 'Stock_Raw fallback';
 }
 
-/**
- * Overview leaderboards: the same SKUs ranked by orders, revenue and units.
- * The three orderings rarely agree - a cheap fast mover tops "orders" while a
- * combo tops "revenue" - and seeing that side by side is the point.
- */
 function tblTop5(O){
   var all=groupBy(O,function(r){return r.pid;},function(r){return r.product;});
   function mini(elmId,name,key,label,col){
@@ -3394,8 +3447,18 @@ function tblAging(rows){
     {name:'Ageing Orders',pageSize:15,pager:'pgAging'});
 }
 /* days of cover = units on hand / units sold per day in the current window */
+/**
+ * Units sold per day, keyed by EAN. Orders_Raw's SKU column is rounded to
+ * scientific notation, so it cannot be matched against the inventory sheet;
+ * pid (the intact EAN) can be.
+ */
 function velocityMap(O,span){
-  var m={};O.forEach(function(r){m[r.sku]=(m[r.sku]||0)+r.qty;});
+  var m={};
+  O.forEach(function(r){
+    [r.pid,r.sku,r.ean].forEach(function(k){
+      if(k)m[k]=(m[k]||0)+r.qty;
+    });
+  });
   Object.keys(m).forEach(function(k){m[k]=m[k]/Math.max(1,span);});
   return m;
 }
@@ -3418,29 +3481,43 @@ function availFmt(v){
   return v<=0?'<span class="tone-red">'+v+'</span>'
     :v<20?'<span class="tone-amber">'+v+'</span>':'<span class="tone-green">'+v+'</span>';
 }
+/* zero in one warehouse while the other holds stock is worth seeing at a glance */
+function whFmt(v,r){
+  if(v>0)return String(v);
+  return r.available>0?'<span class="tone-amber" title="none here, stock sits in the other warehouse">0</span>':'0';
+}
 function tblStock(O,span){
   renderTable('tblStock',
-    [{k:'sku',label:'SKU'},{k:'product',label:'Product'},{k:'category',label:'Category'},
-     {k:'available',label:'Available',r:1,fmt:availFmt},
-     {k:'reserved',label:'Reserved',r:1},{k:'toReceive',label:'To Receive',r:1},
+    [{k:'sku',label:'SKU'},{k:'product',label:'Title'},
+     {k:'aaj',label:'AAJ',r:1,fmt:whFmt},
+     {k:'prep',label:'PrepOnline',r:1,fmt:whFmt},
+     {k:'available',label:'Total',r:1,fmt:availFmt},
      {k:'velocity',label:'Units/Day',r:1},
      {k:'cover',label:'Days Cover',r:1,fmt:coverFmt}],
     stockRows(O,span).filter(function(r){return r.available<20;})
       .sort(function(a,b){return a.available-b.available;}),
-    'No low-stock SKUs — or no stock report uploaded yet.',{name:'Stock Alerts'});
+    'No low-stock SKUs — or no inventory sheet loaded yet.',{name:'Stock Alerts',totals:1});
 }
 function tblStockAll(O,span){
   renderTable('tblStockAll',
-    [{k:'sku',label:'SKU'},{k:'product',label:'Product'},{k:'category',label:'Category'},
-     {k:'available',label:'Available',r:1,fmt:availFmt},
-     {k:'reserved',label:'Reserved',r:1},{k:'toReceive',label:'To Receive',r:1},
-     {k:'damaged',label:'Damaged',r:1},
+    [{k:'sku',label:'SKU'},{k:'product',label:'Title'},
+     {k:'aaj',label:'AAJ Warehouse',r:1,fmt:whFmt},
+     {k:'prep',label:'PrepOnline Warehouse',r:1,fmt:whFmt},
+     {k:'available',label:'Total Inventory',r:1,fmt:availFmt,bar:1},
+     {k:'aajShare',label:'AAJ %',r:1,
+      fmt:function(v){return v==null?'—':v.toFixed(0)+'%';},
+      xl:function(v){return v==null?'':+v.toFixed(1);},
+      totalOf:function(rs){
+        var a=sum(rs,function(r){return r.aaj||0;}),t=sum(rs,function(r){return r.available;});
+        return t?(a/t*100).toFixed(0)+'%':'—';}},
      {k:'velocity',label:'Units/Day',r:1},
-     {k:'cover',label:'Days Cover',r:1,fmt:coverFmt},
-     Object.assign({k:'value',label:'Stock Value'},C_MONEY)],
-    stockRows(O,span).sort(function(a,b){return a.available-b.available;}),
-    'No stock report uploaded yet.',
-    {name:'Stock Ledger',pageSize:20,pager:'pgStockAll'});
+     {k:'cover',label:'Days Cover',r:1,fmt:coverFmt}],
+    stockRows(O,span).map(function(r){
+      return Object.assign({},r,{
+        aajShare:r.available>0?(r.aaj||0)/r.available*100:null});})
+      .sort(function(a,b){return a.available-b.available;}),
+    'No inventory sheet loaded yet.',
+    {name:'Inventory Ledger',pageSize:20,pager:'pgStockAll',totals:1});
 }
 function tblExplorer(O){
   el('expTag').textContent=fmtN(O.length)+' line items match the current filters';
@@ -3533,7 +3610,7 @@ el('exportAll').onclick=function(){
     'tblPayMix','tblSku','tblState','tblCity','tblChannel','tblCat',
     'tblCancBy','tblCanc','tblCourier','tblAging',
     'tblClkDest','tblClkSrc','tblClicks','tblClkDaily','tblE2E','tblFunnel','tblConv',
-    'tblStock','tblStockCat','tblStockAll','tblDaily','tblExplorer'];
+    'tblWarehouse','tblStock','tblStockAll','tblDaily','tblExplorer'];
   var have=ids.filter(function(i){return TABLES[i]&&TABLES[i].rows.length;});
   if(!have.length){alert('No data loaded yet.');return;}
   var base='PrepMarket_Dashboard_'+stamp();

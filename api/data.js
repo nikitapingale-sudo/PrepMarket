@@ -545,6 +545,42 @@ function fillFromOrders(orders, cancellations, aging, stock, returns) {
   return { cancEstimated, stockEstimated, agingEstimated, returnsEstimated };
 }
 
+/**
+ * "Inventory Bifurcation" - stock split across the two warehouses, from its own
+ * spreadsheet. Replaces Stock_Raw.
+ *
+ * Normalised into the same shape the rest of the dashboard already uses for
+ * stock (sku / product / available), with the per-warehouse columns added, so
+ * stock alerts, days-of-cover and the out-of-stock insights keep working
+ * unchanged. Total is taken from the sheet when present and derived from the
+ * two warehouses when not, so a missing total column can't zero the page.
+ */
+function normalizeInventory(raw) {
+  const out = [];
+  for (const o of raw) {
+    const sku = strip(pick(o, ["SKU", "sku", "Product SKU", "EAN"]));
+    if (!sku) continue;
+    const aaj = num(pick(o, ["AAJ Warehouse", "AAJ", "AajSwift Warehouse", "Aaj Warehouse"]));
+    const prep = num(pick(o, ["PrepOnline Warehouse", "PrepOnline", "Preponline Warehouse"]));
+    const totalCol = pick(o, ["Total Inventory", "Total", "Total Stock"]);
+    const available = totalCol == null || totalCol === "" ? aaj + prep : num(totalCol);
+    out.push({
+      sku,
+      product: strip(pick(o, ["Title", "Product Name", "product_name", "Description"])),
+      category: strip(pick(o, ["Category", "Product Category"])) || "Uncategorized",
+      aaj,
+      prep,
+      available,
+      // kept so existing stock views keep their columns; this sheet has none
+      reserved: num(pick(o, ["Reserved"])),
+      toReceive: num(pick(o, ["To Receive", "Incoming"])),
+      damaged: num(pick(o, ["Damaged"])),
+      mrp: num(pick(o, ["MRP", "Price"])),
+    });
+  }
+  return out;
+}
+
 function normalizeStock(raw) {
   const out = [];
   for (const o of raw) {
@@ -570,8 +606,8 @@ function normalizeStock(raw) {
 
 /* ---------- handler ---------- */
 export async function buildPayload() {
-  const [ordersRaw, cancRaw, agingRaw, stockRaw, returnsRaw, clicksResult, funnel, convRaw] =
-    await Promise.all([
+  const [ordersRaw, cancRaw, agingRaw, stockRaw, returnsRaw, clicksResult, funnel,
+         convRaw, invRaw] = await Promise.all([
     fetchTab(TABS.orders),
     fetchTab(TABS.cancellations),
     fetchTab(TABS.aging),
@@ -581,6 +617,7 @@ export async function buildPayload() {
     loadClicks(),
     loadFunnel(),
     fetchTab(TABS.conversion).catch(() => []),
+    fetchTab(TABS.inventory, getInventorySheetId()).catch(() => []),
   ]);
 
   const now = new Date();
@@ -593,7 +630,11 @@ export async function buildPayload() {
   const orders = normalizeOrders(ordersRaw);
   const cancellations = normalizeCanc(cancRaw);
   const aging = normalizeAging(agingRaw);
-  const stock = normalizeStock(stockRaw);
+  /* Inventory Bifurcation supersedes Stock_Raw; fall back to Stock_Raw only if
+     the inventory sheet is unreadable, so the page degrades instead of emptying. */
+  const inventory = normalizeInventory(invRaw);
+  const stock = inventory.length ? inventory : normalizeStock(stockRaw);
+  const stockSource = inventory.length ? "inventory-bifurcation" : "stock-raw";
   const returns = normalizeReturns(returnsRaw);
   const estimated = fillFromOrders(orders, cancellations, aging, stock, returns);
 
@@ -613,6 +654,7 @@ export async function buildPayload() {
   return {
     orders, cancellations, aging, stock, returns,
     clicks: clicksResult.rows,
+    stockSource,
     funnel,
     conversion: normalizeConversion(convRaw),
     clicksDailyUsers: clicksResult.dailyUsers || {},
