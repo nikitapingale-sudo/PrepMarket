@@ -255,6 +255,15 @@
   .heat .hc:hover{transform:scale(1.35);z-index:2;position:relative;outline:1px solid var(--cyan)}
   .heat .hh{color:var(--mute);text-align:center;font-weight:700;font-size:8.5px}
 
+  /* ---------- section divider ---------- */
+  .sechead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    margin:26px 0 13px;font-size:14px;font-weight:700;color:var(--txt)}
+  .sechead .n{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;
+    font-size:11px;font-weight:800;color:#fff;
+    background:linear-gradient(135deg,var(--violet),var(--cyan))}
+  .sechead em{font-style:normal;font-size:12px;color:var(--mute);font-weight:500}
+  .sechead::after{content:'';flex:1;height:1px;background:var(--line2);min-width:20px}
+
   /* ---------- funnel steps ---------- */
   .funnel{display:flex;align-items:stretch;gap:0;min-width:660px;padding:4px 0}
   .fstep{flex:1;position:relative;padding:15px 18px;border-radius:12px;
@@ -601,48 +610,37 @@
       <div class="card"><div class="empty" id="fnlEmptyMsg"></div></div>
     </div>
 
-    <!-- ---- end-to-end: redirection through to order ---- -->
+    <!-- ---- the whole journey, top line ---- -->
     <div id="e2eBody" style="display:none">
       <div class="kpis" id="e2eKpis"></div>
-
       <div class="card" style="border-color:var(--line2)">
-        <h2>End to end: redirection &rarr; conversion <span class="tag" id="e2eRangeTag"></span></h2>
+        <h2>The whole journey <span class="tag" id="e2eRangeTag"></span></h2>
         <div class="overflow"><div class="funnel" id="e2eSteps"></div></div>
-      </div>
-
-      <div class="card">
-        <h2>Where the journey leaks</h2>
-        <div class="insights" id="e2eInsights"></div>
-      </div>
-
-      <div class="card">
-        <h2>Day on day: redirection &rarr; conversion<span class="spacer"></span><button class="xls" data-xls="tblE2E">&#8681; EXCEL</button></h2>
-        <div class="overflow" id="tblE2E"></div>
-        <div class="pager" id="pgE2E"></div>
       </div>
     </div>
 
     <div id="fnlBody" style="display:none">
+      <div class="card">
+        <h2>Insights &amp; observations <span class="tag">generated from the current date range</span></h2>
+        <div id="fnlInsights"></div>
+      </div>
+
+      <div class="sechead">
+        <span class="n">1</span> How people arrive
+        <em>PLP &rarr; banner or widget &rarr; entry click</em>
+        <span id="fnlSource"></span>
+      </div>
+
       <div class="kpis" id="fnlKpis"></div>
 
       <div class="card">
-        <h2>Ingress funnel <span class="tag" id="fnlRangeTag"></span> <span id="fnlSource"></span></h2>
+        <h2>Ingress funnel <span class="tag" id="fnlRangeTag"></span></h2>
         <div class="overflow"><div class="funnel" id="fnlSteps"></div></div>
       </div>
 
-      <div class="card">
-        <h2>Insights &amp; observations <span class="tag">generated from the current date range</span></h2>
-        <div class="insights" id="fnlInsights"></div>
-      </div>
-
-      <div class="card">
-        <h2>Entry clicks by day <span class="tag">banner vs widget</span></h2>
-        <div class="chartbox sm"><canvas id="fnlTrendChart"></canvas></div>
-      </div>
-
-      <div class="card">
-        <h2>Click-through rate by day <span class="tag">%</span></h2>
-        <div class="chartbox sm"><canvas id="fnlCtrChart"></canvas></div>
+      <div class="grid2">
+        <div class="card"><h2>Entry clicks by day <span class="tag">banner vs widget</span></h2><div class="chartbox sm"><canvas id="fnlTrendChart"></canvas></div></div>
+        <div class="card"><h2>Click-through rate by day <span class="tag">%</span></h2><div class="chartbox sm"><canvas id="fnlCtrChart"></canvas></div></div>
       </div>
 
       <div class="card">
@@ -658,29 +656,26 @@
       </div>
     </div>
 
-    <!-- ---- marketplace / on-site conversion funnel ---- -->
+    <!-- ---- what happens once they land ---- -->
     <div id="cnvBody" style="display:none">
-      <div class="card" style="border-color:var(--line2)">
-        <h2>Marketplace funnel <span class="tag">sessions &rarr; cart &rarr; checkout &rarr; order</span> <span id="cnvSource"></span></h2>
-        <div class="overflow"><div class="funnel" id="cnvSteps"></div></div>
-      </div>
-
-      <div class="kpis" id="cnvKpis"></div>
-
-      <div class="card">
-        <h2>Conversion observations</h2>
-        <div class="insights" id="cnvInsights"></div>
+      <div class="sechead">
+        <span class="n">2</span> What they do on site
+        <em>session &rarr; cart &rarr; checkout &rarr; order</em>
+        <span id="cnvSource"></span>
       </div>
 
       <div class="grid2">
         <div class="card"><h2>Sessions &amp; orders by day</h2><div class="chartbox sm"><canvas id="cnvTrendChart"></canvas></div></div>
         <div class="card"><h2>Step conversion by day <span class="tag">%</span></h2><div class="chartbox sm"><canvas id="cnvRateChart"></canvas></div></div>
       </div>
+    </div>
 
+    <!-- one combined day-on-day table: tblConv's columns were a subset of these -->
+    <div id="e2eTableBody" style="display:none">
       <div class="card">
-        <h2>Marketplace funnel, day on day<span class="spacer"></span><button class="xls" data-xls="tblConv">&#8681; EXCEL</button></h2>
-        <div class="overflow" id="tblConv"></div>
-        <div class="pager" id="pgConv"></div>
+        <h2>Day on day: entry click &rarr; order<span class="spacer"></span><button class="xls" data-xls="tblE2E">&#8681; EXCEL</button></h2>
+        <div class="overflow" id="tblE2E"></div>
+        <div class="pager" id="pgE2E"></div>
       </div>
     </div>
   </section>
@@ -1567,9 +1562,11 @@ function render(){
   tblPayMix(O);tblCancBy(Cc);tblCourier(O);tblWarehouse();checkInventorySource();
 
   renderClicks(days);
+  FNL_INSIGHTS={journey:[],ingress:[],conversion:[]};
   renderFunnel(days);
   renderE2E();
   renderConversion();
+  paintFunnelInsights();
 
   tblTop5(O);
   tblSku(O);tblState(O);tblCity(O);tblChannel(O,Cc);tblCat(O);
@@ -1872,7 +1869,7 @@ function drawClickInsights(s){
     }
   }
 
-  host.innerHTML=out.map(function(i){
+  el('clkInsights').innerHTML=out.map(function(i){
     return '<div class="ins" style="--c:'+i.c+'"><span class="ic">'+i.ic+'</span>'+
       '<span class="tx">'+i.html+'</span></div>';
   }).join('');
@@ -1993,13 +1990,17 @@ function renderFunnel(days){
     {lab:'Widget CTR',v:wCtr==null?0:wCtr,f:function(n){return wCtr==null?'—':n.toFixed(2)+'%';},
       sub:'of widget viewers'+windowNote(aW,Fn.length),
       a1:'var(--violet)',a2:'var(--violet)',gl:'var(--glow-violet)',d:''},
-    {lab:'Total Entry Clicks',v:entry,f:fmtN,
-      sub:(eCtr==null?'banner + widget':eCtr.toFixed(2)+'% of PLP viewers'+windowNote(aE,Fn.length)),
+    /* Entry-click total is not repeated here - the Journey bank above already
+       carries it. This one adds what that bank cannot: the share of PLP
+       viewers who enter at all. */
+    {lab:'PLP → Entry',v:eCtr==null?0:eCtr,
+      f:function(n){return eCtr==null?'—':n.toFixed(2)+'%';},
+      sub:'of PLP viewers click through'+windowNote(aE,Fn.length),
       a1:'var(--blue)',a2:'var(--green)',gl:'rgba(96,165,250,.25)',d:''}
   ]);
 
   drawFunnelSteps(plp,wView,wClick,banner,entry,{expo:aX.v,click:aW.v,total:aE.v});
-  drawFunnelInsights(Fn,{plp:plp,banner:banner,wView:wView,wClick:wClick,
+  FNL_INSIGHTS.ingress=drawFunnelInsights(Fn,{plp:plp,banner:banner,wView:wView,wClick:wClick,
     entry:entry,bCtr:bCtr,wCtr:wCtr,eCtr:eCtr,expo:aX,aB:aB,aW:aW,days:Fn.length});
   drawFnlTrend(Fn);
   drawFnlCtr(Fn);
@@ -2101,8 +2102,7 @@ function drawFunnelSteps(plp,wView,wClick,banner,entry,r){
 
 function drawFunnelInsights(Fn,t){
   var out=[];
-  function add(ic,c,html){out.push({ic:ic,c:c,html:html});}
-  var host=el('fnlInsights');if(!host)return;
+  function add(ic,c,html){out.push({cat:'Ingress',ic:ic,c:c,html:html});}
 
   /* days where the PLP feed produced nothing - rates are undefined, not zero */
   var gaps=Fn.filter(function(r){return !r.plp&&(r.wView||r.banner);});
@@ -2157,10 +2157,7 @@ function drawFunnelInsights(Fn,t){
     fmtDay(withCtr[withCtr.length-1].day)+' — a '+
     (withCtr[0].c-withCtr[withCtr.length-1].c).toFixed(1)+' point swing.');
 
-  host.innerHTML=out.map(function(i){
-    return '<div class="ins" style="--c:'+i.c+'"><span class="ic">'+i.ic+'</span>'+
-      '<span class="tx">'+i.html+'</span></div>';
-  }).join('');
+  return out;
 }
 
 function drawFnlTrend(Fn){
@@ -2217,6 +2214,15 @@ function drawFnlCtr(Fn){
           return ' '+c.dataset.label+': '+(c.parsed.y==null?'no data':c.parsed.y.toFixed(2)+'%');}}})}}});
 }
 
+/** Insights from all three funnel stages, rendered once as grouped sections. */
+var FNL_INSIGHTS={journey:[],ingress:[],conversion:[]};
+function paintFunnelInsights(){
+  var all=[].concat(FNL_INSIGHTS.journey||[],FNL_INSIGHTS.ingress||[],FNL_INSIGHTS.conversion||[]);
+  var host=el('fnlInsights');if(!host)return;
+  host.innerHTML=all.length?groupInsights(all)
+    :'<div class="ins"><span class="tx">No funnel data in this range.</span></div>';
+}
+
 /* ==================== END-TO-END: REDIRECTION -> ORDER ==================== */
 /**
  * Joins the ingress funnel (entry clicks) to the on-site funnel (sessions ->
@@ -2244,8 +2250,8 @@ function e2eRows(from,to){
 
 function renderE2E(){
   var E=e2eRows(F.from,F.to);
-  if(!E.length){el('e2eBody').style.display='none';return;}
-  el('e2eBody').style.display='block';
+  if(!E.length){el('e2eBody').style.display='none';el('e2eTableBody').style.display='none';return;}
+  el('e2eBody').style.display='block';el('e2eTableBody').style.display='block';
 
   var entry=sum(E,function(r){return r.entry;});
   var sess=sum(E,function(r){return r.sessions;});
@@ -2293,7 +2299,7 @@ function renderE2E(){
       '<div class="fv num">'+fmtN(ord)+'</div><div class="fs">'+
       (entry?rate(ord,entry).toFixed(3)+'% end to end':'')+'</div></div>';
 
-  drawE2EInsights(E,{entry:entry,sess:sess,atc:atc,chk:chk,ord:ord});
+  FNL_INSIGHTS.journey=drawE2EInsights(E,{entry:entry,sess:sess,atc:atc,chk:chk,ord:ord});
 
   renderTable('tblE2E',
     [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
@@ -2340,8 +2346,7 @@ function renderE2E(){
 
 function drawE2EInsights(E,t){
   var out=[];
-  function add(ic,c,html){out.push({ic:ic,c:c,html:html});}
-  var host=el('e2eInsights');if(!host)return;
+  function add(ic,c,html){out.push({cat:'Journey',ic:ic,c:c,html:html});}
 
   /* rank every step by absolute people lost, not by percentage */
   var steps=[
@@ -2388,10 +2393,7 @@ function drawE2EInsights(E,t){
     '</b> more sessions than entry clicks — the store also gets traffic that never touched a '+
     'banner or widget, so these two datasets are not a closed system.');
 
-  host.innerHTML=out.map(function(i){
-    return '<div class="ins" style="--c:'+i.c+'"><span class="ic">'+i.ic+'</span>'+
-      '<span class="tx">'+i.html+'</span></div>';
-  }).join('');
+  return out;
 }
 
 /* ==================== MARKETPLACE CONVERSION FUNNEL ==================== */
@@ -2426,78 +2428,9 @@ function renderConversion(){
       (DATA.conversionBackfill?' Earlier days come from the committed CSV history.':'')
     : 'The Prepmarket_Conversion tab could not be read, so this is the committed CSV export.';
 
-  paintKpis('cnvKpis',[
-    {lab:'Sessions',v:sess,f:fmtN,sub:C.length+' days',
-      a1:'var(--cyan)',a2:'var(--violet)',gl:'var(--glow-cyan)',d:'',
-      sp:C.slice().reverse().map(function(r){return r.sessions;}),spc:cssVar('--cyan')},
-    {lab:'Added To Cart',v:atc,f:fmtN,sub:pctCell(rate(atc,sess))+' of sessions',
-      a1:'var(--green)',a2:'var(--cyan)',gl:'rgba(52,211,153,.3)',d:'',
-      sp:C.slice().reverse().map(function(r){return r.atc;}),spc:cssVar('--green')},
-    {lab:'Reached Checkout',v:chk,f:fmtN,sub:pctCell(rate(chk,atc))+' of cart adds',
-      a1:'var(--amber)',a2:'var(--green)',gl:'rgba(251,191,36,.25)',d:'',
-      sp:C.slice().reverse().map(function(r){return r.checkout;}),spc:cssVar('--amber')},
-    {lab:'Orders',v:ord,f:fmtN,sub:pctCell(rate(ord,chk))+' of checkouts',
-      a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:'',
-      sp:C.slice().reverse().map(function(r){return r.orders;}),spc:cssVar('--violet')},
-    {lab:'Conversion Rate',v:rate(ord,sess)||0,
-      f:function(n){return sess?n.toFixed(2)+'%':'—';},sub:'orders per session',
-      a1:'var(--blue)',a2:'var(--green)',gl:'rgba(96,165,250,.25)',d:''},
-    {lab:'Sessions / Order',v:ord?sess/ord:0,f:function(n){return ord?fmtN(n):'—';},
-      sub:'visits needed per sale',
-      a1:'var(--red)',a2:'var(--amber)',gl:'rgba(248,113,113,.25)',d:''}
-  ]);
-
-  el('cnvSteps').innerHTML=
-    '<div class="fstep" style="--fc:'+cssVar('--cyan')+'"><div class="fl">Sessions</div>'+
-      '<div class="fv num">'+fmtN(sess)+'</div><div class="fs">visits to the store</div></div>'+
-    cnvArrow(rate(atc,sess),'added to cart')+
-    '<div class="fstep" style="--fc:'+cssVar('--green')+'"><div class="fl">Cart</div>'+
-      '<div class="fv num">'+fmtN(atc)+'</div><div class="fs">sessions with cart adds</div></div>'+
-    cnvArrow(rate(chk,atc),'to checkout')+
-    '<div class="fstep" style="--fc:'+cssVar('--amber')+'"><div class="fl">Checkout</div>'+
-      '<div class="fv num">'+fmtN(chk)+'</div><div class="fs">reached checkout</div></div>'+
-    cnvArrow(rate(ord,chk),'completed')+
-    '<div class="fstep" style="--fc:'+cssVar('--violet')+'"><div class="fl">Orders</div>'+
-      '<div class="fv num">'+fmtN(ord)+'</div><div class="fs">'+
-      (sess?rate(ord,sess).toFixed(2)+'% of sessions':'')+'</div></div>';
-
-  drawConvInsights(C,{sess:sess,atc:atc,chk:chk,ord:ord});
+  FNL_INSIGHTS.conversion=drawConvInsights(C,{sess:sess,atc:atc,chk:chk,ord:ord});
   drawCnvTrend(C);drawCnvRate(C);
 
-  renderTable('tblConv',
-    [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
-     {k:'sessions',label:'Sessions',r:1,tot:fmtN},
-     {k:'atc',label:'ATC',r:1,tot:fmtN},
-     {k:'sessAtc',label:'Sess→ATC',r:1,fmt:pctCell,
-      xl:function(v){return v==null?'':+v.toFixed(2);},
-      totalOf:function(rows){var v=rate(sum(rows,function(r){return r.atc;}),
-        sum(rows,function(r){return r.sessions;}));return v==null?'—':v.toFixed(2)+'%';}},
-     {k:'checkout',label:'Checkout',r:1,tot:fmtN},
-     {k:'atcCo',label:'ATC→CO',r:1,fmt:function(v){
-        /* >100% is real: buy-now flows reach checkout without a cart-add event */
-        return v==null?pctCell(v)
-          :v>100?'<span class="tone-amber" title="more checkouts than cart adds — buy-now flow">'+
-                 v.toFixed(1)+'%</span>':v.toFixed(1)+'%';},
-      xl:function(v){return v==null?'':+v.toFixed(2);},
-      totalOf:function(rows){var v=rate(sum(rows,function(r){return r.checkout;}),
-        sum(rows,function(r){return r.atc;}));return v==null?'—':v.toFixed(1)+'%';}},
-     {k:'orders',label:'Orders',r:1,tot:fmtN},
-     {k:'coOrder',label:'CO→Order',r:1,fmt:pctCell,
-      xl:function(v){return v==null?'':+v.toFixed(2);},
-      totalOf:function(rows){var v=rate(sum(rows,function(r){return r.orders;}),
-        sum(rows,function(r){return r.checkout;}));return v==null?'—':v.toFixed(1)+'%';}},
-     {k:'cvr',label:'CVR',r:1,bar:1,fmt:pctCell,
-      xl:function(v){return v==null?'':+v.toFixed(3);},
-      totalOf:function(rows){var v=rate(sum(rows,function(r){return r.orders;}),
-        sum(rows,function(r){return r.sessions;}));return v==null?'—':v.toFixed(2)+'%';}}],
-    C.map(function(r){
-      return Object.assign({},r,{
-        sessAtc:rate(r.atc,r.sessions),
-        atcCo:rate(r.checkout,r.atc),
-        coOrder:rate(r.orders,r.checkout),
-        cvr:rate(r.orders,r.sessions)});}),
-    'No conversion data in this range.',
-    {name:'Marketplace Funnel',totals:1,pageSize:20,pager:'pgConv'});
 }
 
 function cnvArrow(v,cap){
@@ -2507,8 +2440,7 @@ function cnvArrow(v,cap){
 
 function drawConvInsights(C,t){
   var out=[];
-  function add(ic,c,html){out.push({ic:ic,c:c,html:html});}
-  var host=el('cnvInsights');if(!host)return;
+  function add(ic,c,html){out.push({cat:'Conversion',ic:ic,c:c,html:html});}
 
   var steps=[
     {n:'Sessions → cart',v:rate(t.atc,t.sess),lost:t.sess-t.atc},
@@ -2559,10 +2491,7 @@ function drawConvInsights(C,t){
     best[0].c.toFixed(2)+'%</b> ('+fmtDay(best[0].day)+') down to <b>'+
     best[best.length-1].c.toFixed(2)+'%</b> ('+fmtDay(best[best.length-1].day)+').');
 
-  host.innerHTML=out.map(function(i){
-    return '<div class="ins" style="--c:'+i.c+'"><span class="ic">'+i.ic+'</span>'+
-      '<span class="tx">'+i.html+'</span></div>';
-  }).join('');
+  return out;
 }
 
 function drawCnvTrend(C){
@@ -2822,8 +2751,9 @@ function drawInsights(s){
  * so 19 observations stay readable. Order is fixed - Sales, Operations,
  * Returns, Inventory - regardless of the order they were generated in.
  */
-var INSIGHT_ORDER=['Sales','Operations','Inventory'];
-var INSIGHT_COLOR={Sales:'var(--green)',Operations:'var(--amber)',Inventory:'var(--blue)'};
+var INSIGHT_ORDER=['Sales','Operations','Inventory','Journey','Ingress','Conversion'];
+var INSIGHT_COLOR={Sales:'var(--green)',Operations:'var(--amber)',Inventory:'var(--blue)',
+                   Journey:'var(--violet)',Ingress:'var(--cyan)',Conversion:'var(--green)'};
 function groupInsights(items){
   var seen=INSIGHT_ORDER.slice();
   items.forEach(function(i){if(seen.indexOf(i.cat)<0)seen.push(i.cat);});
@@ -3684,7 +3614,7 @@ el('exportAll').onclick=function(){
   var ids=['tblTop5Orders','tblTop5Rev','tblTop5Units',
     'tblPayMix','tblSku','tblState','tblCity','tblChannel','tblCat',
     'tblCancBy','tblCanc','tblCourier','tblAging',
-    'tblClkDest','tblClkSrc','tblClicks','tblClkDaily','tblE2E','tblFunnel','tblWidgetProd','tblConv',
+    'tblClkDest','tblClkSrc','tblClicks','tblClkDaily','tblE2E','tblFunnel','tblWidgetProd',
     'tblWarehouse','tblStock','tblStockAll','tblDaily','tblExplorer'];
   var have=ids.filter(function(i){return TABLES[i]&&TABLES[i].rows.length;});
   if(!have.length){alert('No data loaded yet.');return;}
