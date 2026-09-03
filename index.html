@@ -255,6 +255,32 @@
   .heat .hc:hover{transform:scale(1.35);z-index:2;position:relative;outline:1px solid var(--cyan)}
   .heat .hh{color:var(--mute);text-align:center;font-weight:700;font-size:8.5px}
 
+  /* ---------- drill-through modal ---------- */
+  .modal{position:fixed;inset:0;z-index:200;background:rgba(4,7,14,.72);
+    backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:22px}
+  .modal-box{background:var(--card-solid);border:1px solid var(--line2);border-radius:16px;
+    width:min(1180px,100%);max-height:86vh;display:flex;flex-direction:column;
+    box-shadow:0 24px 70px rgba(0,0,0,.5);overflow:hidden}
+  .modal-head{display:flex;align-items:center;gap:11px;padding:15px 17px;
+    border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .modal-head h3{font-family:'Space Grotesk','Inter',sans-serif;font-size:15px;font-weight:700}
+  .modal-sub{font-size:11.5px;color:var(--mute);margin-top:2px}
+  .modal-box .overflow{flex:1;overflow:auto;padding:0 17px}
+  .modal-box .pager{padding:0 17px 15px}
+  button.mixfilter{margin-left:6px;padding:1px 7px;font:600 10px/1.6 var(--f);letter-spacing:.04em;
+    text-transform:uppercase;color:var(--violet);background:rgba(139,92,246,.12);
+    border:1px solid rgba(139,92,246,.35);border-radius:99px;cursor:pointer;opacity:.45}
+  tbody tr:hover button.mixfilter,button.mixfilter:hover{opacity:1;background:rgba(139,92,246,.24)}
+  tbody tr.drillable{cursor:zoom-in}
+  tbody tr.drillable:hover td{background:rgba(34,211,238,.1)}
+  tbody tr.drillable td:first-child{position:relative}
+  tbody tr.drillable:hover td:first-child::after{content:'\2197';position:absolute;right:4px;
+    opacity:.55;font-size:11px}
+  @media (max-width:640px){
+    .modal{padding:0}
+    .modal-box{max-height:100vh;height:100%;border-radius:0;border:none}
+  }
+
   /* ---------- section divider ---------- */
   .sechead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
     margin:26px 0 13px;font-size:14px;font-weight:700;color:var(--txt)}
@@ -494,7 +520,7 @@
     </div>
 
     <div class="grid2">
-      <div class="card"><h2>Payment split <span class="tag">click a row to filter</span><span class="spacer"></span><button class="xls" data-xls="tblPayMix">&#8681; EXCEL</button></h2><div class="overflow" id="tblPayMix"></div></div>
+      <div class="card"><h2>Payment split <span class="tag">click a row to drill &middot; use the chip to filter</span><span class="spacer"></span><button class="xls" data-xls="tblPayMix">&#8681; EXCEL</button></h2><div class="overflow" id="tblPayMix"></div></div>
       <div class="card"><h2>Category mix <span class="tag">click to filter</span></h2><div class="chartbox sm"><canvas id="catChart"></canvas></div></div>
     </div>
 
@@ -621,7 +647,7 @@
 
     <div id="fnlBody" style="display:none">
       <div class="card">
-        <h2>Insights &amp; observations <span class="tag">generated from the current date range</span></h2>
+        <h2>Headline observations <span class="tag">the journey end to end</span></h2>
         <div id="fnlInsights"></div>
       </div>
 
@@ -677,6 +703,12 @@
         <div class="overflow" id="tblE2E"></div>
         <div class="pager" id="pgE2E"></div>
       </div>
+    </div>
+
+    <!-- stage detail sits at the end, after the numbers it refers to -->
+    <div class="card" id="fnlDetailCard" style="display:none">
+      <h2>Ingress &amp; conversion observations <span class="tag">detail behind the sections above</span></h2>
+      <div id="fnlInsightsDetail"></div>
     </div>
   </section>
 
@@ -736,6 +768,23 @@
   </section>
 
 </main>
+
+<!-- drill-through: the records behind whatever row was clicked -->
+<div class="modal" id="drill" style="display:none">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>
+        <h3 id="drillTitle"></h3>
+        <div class="modal-sub" id="drillSub"></div>
+      </div>
+      <span class="spacer"></span>
+      <button class="xls" data-xls="tblDrill">&#8681; EXCEL</button>
+      <button class="btn ghost" id="drillClose" title="Close (Esc)">&times; Close</button>
+    </div>
+    <div class="overflow" id="tblDrill"></div>
+    <div class="pager" id="pgDrill"></div>
+  </div>
+</div>
 
 <footer>Auto-refreshes every 2 minutes &middot; Data source: EasyEcom exports in Google Sheets &middot; Every table exports to Excel</footer>
 
@@ -1739,10 +1788,20 @@ function renderClicks(days){
             {k:'visitors',label:'Visitors',r:1,noTotal:1},
             Object.assign({k:'share',label:'% of Clicks'},C_SHARE)];
   };
+  var clkDetailCols=[{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
+    {k:'src',label:'Source Page',fmt:urlCell,xl:function(v){return v;}},
+    {k:'dest',label:'Destination URL',fmt:urlCell,xl:function(v){return v;}},
+    {k:'clicks',label:'Clicks',r:1},{k:'users',label:'Signed-in',r:1},{k:'visitors',label:'Visitors',r:1}];
   renderTable('tblClkDest',urlCols('Destination URL'),dests,
-    'No clicks in this range.',{name:'Click Destinations',totals:1});
+    'No clicks in this range.',{name:'Click Destinations',totals:1,
+     drill:function(r){var m=C.filter(function(x){return (x.dest||'(none)')===r.key;});
+       openDrill('Destination: '+shortUrl(r.key),fmtN(r.clicks)+' clicks over '+fmtN(m.length)+' day/source rows',
+         clkDetailCols,m,'Drill Destination');}});
   renderTable('tblClkSrc',urlCols('Source Page'),srcs,
-    'No clicks in this range.',{name:'Click Sources',totals:1});
+    'No clicks in this range.',{name:'Click Sources',totals:1,
+     drill:function(r){var m=C.filter(function(x){return (x.src||'(none)')===r.key;});
+       openDrill('Source: '+shortUrl(r.key),fmtN(r.clicks)+' clicks over '+fmtN(m.length)+' day/destination rows',
+         clkDetailCols,m,'Drill Source');}});
 
   renderTable('tblClicks',
     [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v||'';}},
@@ -1753,7 +1812,14 @@ function renderClicks(days){
      {k:'visitors',label:'Visitors',r:1,noTotal:1}],
     C.slice().sort(function(a,b){return b.clicks-a.clicks;}),
     'No clicks in this range.',
-    {name:'Click Detail',pageSize:25,pager:'pgClicks',totals:1});
+    {name:'Click Detail',pageSize:25,pager:'pgClicks',totals:1,
+     drill:function(r){var m=C.filter(function(x){return x.src===r.src&&x.dest===r.dest;})
+         .sort(function(a,b){return a.day<b.day?1:-1;});
+       openDrill(shortUrl(r.src)+' → '+shortUrl(r.dest),
+         fmtN(m.reduce(function(a,x){return a+x.clicks;},0))+' clicks over '+fmtN(m.length)+' days',
+         [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
+          {k:'clicks',label:'Clicks',r:1,bar:1},{k:'users',label:'Signed-in',r:1},{k:'visitors',label:'Visitors',r:1}],
+         m,'Drill Click Pair');}});
 
   var daily=days.filter(function(d){return byDay[d]>0;}).map(function(d){
     var rows=C.filter(function(r){return r.day===d;});
@@ -1775,7 +1841,14 @@ function renderClicks(days){
      Object.assign({k:'share',label:'% of Clicks'},C_SHARE)],
     daily.sort(function(a,b){return a.day<b.day?1:-1;}),
     'No clicks in this range.',
-    {name:'Clicks Daily Summary',pageSize:20,pager:'pgClkDaily',totals:1});
+    {name:'Clicks Daily Summary',pageSize:20,pager:'pgClkDaily',totals:1,
+     drill:function(r){var m=C.filter(function(x){return x.day===r.day;})
+         .sort(function(a,b){return b.clicks-a.clicks;});
+       openDrill('Clicks on '+fmtDay(r.day),fmtN(r.clicks)+' clicks across '+fmtN(m.length)+' source/destination pairs',
+         [{k:'src',label:'Source Page',fmt:urlCell,xl:function(v){return v;}},
+          {k:'dest',label:'Destination URL',fmt:urlCell,xl:function(v){return v;}},
+          {k:'clicks',label:'Clicks',r:1},{k:'users',label:'Signed-in',r:1},{k:'visitors',label:'Visitors',r:1}],
+         m,'Drill Clicks Day');}});
 }
 
 /**
@@ -2029,7 +2102,15 @@ function renderFunnel(days){
         wCtr:rate(r.wClick,r.wView),
         entry:r.banner+r.wClick});}),
     'No funnel data in this range.',
-    {name:'Ingress Funnel',totals:1,pageSize:20,pager:'pgFunnel'});
+    {name:'Ingress Funnel',totals:1,pageSize:20,pager:'pgFunnel',
+     drill:function(r){
+       var m=(DATA.widgetProducts||[]).filter(function(x){return x.day===r.day;})
+         .map(function(x){return Object.assign({},x,{ctr:rate(x.clicks,x.views)});})
+         .sort(function(a,b){return b.views-a.views;});
+       openDrill('Widget products on '+fmtDay(r.day),fmtN(m.length)+' products shown that day',
+         [{k:'product',label:'Product'},{k:'views',label:'Views',r:1},{k:'clicks',label:'Clicks',r:1},
+          {k:'ctr',label:'CTR',r:1,fmt:pctCell,xl:function(v){return v==null?'':+v.toFixed(2);}}],
+         m,'Drill Widget Day');}});
 }
 
 /**
@@ -2074,7 +2155,16 @@ function renderWidgetProducts(){
       xl:function(v,r){return totViews?+(r.views/totViews*100).toFixed(2):'';},
       totalOf:function(){return '100.0%';}}],
     rows,'No widget product data in this range.',
-    {name:'Widget Product Performance',totals:1,pageSize:25,pager:'pgWidgetProd'});
+    {name:'Widget Product Performance',totals:1,pageSize:25,pager:'pgWidgetProd',
+     drill:function(r){
+       var m=W.filter(function(x){return x.product===r.key;})
+         .map(function(x){return Object.assign({},x,{ctr:rate(x.clicks,x.views)});})
+         .sort(function(a,b){return a.day<b.day?1:-1;});
+       openDrill(r.key,fmtN(r.views)+' views · '+fmtN(r.clicks)+' clicks · '+(r.ctr==null?'—':r.ctr.toFixed(2)+'%'),
+         [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
+          {k:'views',label:'Views',r:1},{k:'clicks',label:'Clicks',r:1},
+          {k:'ctr',label:'CTR',r:1,fmt:pctCell,xl:function(v){return v==null?'':+v.toFixed(2);}}],
+         m,'Drill Widget Product');}});
 }
 
 /** Horizontal funnel: how many of the people who saw a step took the next one. */
@@ -2217,10 +2307,18 @@ function drawFnlCtr(Fn){
 /** Insights from all three funnel stages, rendered once as grouped sections. */
 var FNL_INSIGHTS={journey:[],ingress:[],conversion:[]};
 function paintFunnelInsights(){
-  var all=[].concat(FNL_INSIGHTS.journey||[],FNL_INSIGHTS.ingress||[],FNL_INSIGHTS.conversion||[]);
-  var host=el('fnlInsights');if(!host)return;
-  host.innerHTML=all.length?groupInsights(all)
-    :'<div class="ins"><span class="tx">No funnel data in this range.</span></div>';
+  /* Journey up top - that is the answer a leader wants first. Stage detail goes
+     to the bottom, after the tables and charts it refers to. */
+  var top=el('fnlInsights');
+  if(top){
+    var j=FNL_INSIGHTS.journey||[];
+    top.innerHTML=j.length?groupInsights(j)
+      :'<div class="ins"><span class="tx">No funnel data in this range.</span></div>';
+  }
+  var detail=[].concat(FNL_INSIGHTS.ingress||[],FNL_INSIGHTS.conversion||[]);
+  var host=el('fnlInsightsDetail');if(!host)return;
+  el('fnlDetailCard').style.display=detail.length?'block':'none';
+  host.innerHTML=groupInsights(detail);
 }
 
 /* ==================== END-TO-END: REDIRECTION -> ORDER ==================== */
@@ -2341,7 +2439,8 @@ function renderE2E(){
         coOrder:rate(r.orders,r.checkout),
         e2e:rate(r.orders,r.entry)});}),
     'No days where both entry-click and session data exist.',
-    {name:'End To End Funnel',totals:1,pageSize:20,pager:'pgE2E'});
+    {name:'End To End Funnel',totals:1,pageSize:20,pager:'pgE2E',
+     drill:function(r){drillOrders(ordersIn(F.from,F.to),'Date',fmtDay(r.day),function(x){return x.day===r.day;});}});
 }
 
 function drawE2EInsights(E,t){
@@ -3129,8 +3228,10 @@ function renderTable(elmId,cols,data,emptyMsg,opts){
   var h='<table><thead><tr>'+cols.map(function(c){
     var arr=st&&st.k===c.k?(st.dir>0?' <span class="arr">&#9650;</span>':' <span class="arr">&#9660;</span>'):'';
     return '<th class="'+(c.r?'r':'')+'" data-k="'+c.k+'">'+c.label+arr+'</th>';}).join('')+'</tr></thead><tbody>';
+  var rowFn=opts.onRow||opts.drill;
+  var rowCls=opts.drill?'drillable':'clickable';
   view.forEach(function(r,ri){
-    h+='<tr'+(opts.onRow?' class="clickable" data-ri="'+ri+'"':'')+'>'+cols.map(function(c){
+    h+='<tr'+(rowFn?' class="'+rowCls+'" data-ri="'+ri+'"':'')+'>'+cols.map(function(c){
       var v=c.fmt?c.fmt(r[c.k],r):esc(r[c.k]==null?'':r[c.k]);
       if(c.bar)v+='<span class="sharebar"><i style="width:'+
         Math.round((r[c.k]||0)/maxBar[c.k]*100)+'%"></i></span>';
@@ -3161,10 +3262,14 @@ function renderTable(elmId,cols,data,emptyMsg,opts){
       sortState[elmId]={k:k,dir:cur&&cur.k===k?-cur.dir:-1};
       renderTable(elmId,cols,data,emptyMsg,opts);};});
 
-  if(opts.onRow){
-    host.querySelectorAll('tbody tr.clickable').forEach(function(tr){
-      tr.onclick=function(){opts.onRow(view[+tr.dataset.ri]);};});
+  if(rowFn){
+    host.querySelectorAll('tbody tr.clickable,tbody tr.drillable').forEach(function(tr){
+      tr.onclick=function(){rowFn(view[+tr.dataset.ri]);};});
   }
+
+  /* Rows drill; filtering keeps its own chip so one gesture cannot mean two things. */
+  host.querySelectorAll('button.mixfilter').forEach(function(b){
+    b.onclick=function(e){e.stopPropagation();toggleOnly(b.dataset.fk,b.dataset.fv);};});
 
   if(size&&opts.pager){
     var pages=Math.ceil(total/size);
@@ -3182,6 +3287,50 @@ function renderTable(elmId,cols,data,emptyMsg,opts){
         pageState[elmId]=Math.max(0,Math.min(pages-1,+b.dataset.go));
         renderTable(elmId,cols,data,emptyMsg,opts);};});
   }
+}
+
+/* ============================ DRILL-THROUGH ============================ */
+/**
+ * Every aggregate row on the dashboard is a count of something. Drill-through
+ * shows what that something actually is - click a row, get the records behind
+ * it, sortable and exportable like any other table.
+ */
+var DRILL_ORDER_COLS=[
+  {k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v||'';}},
+  {k:'ref',label:'Order'},{k:'sku',label:'SKU'},{k:'product',label:'Product'},
+  {k:'category',label:'Category'},{k:'qty',label:'Units',r:1},
+  Object.assign({k:'price',label:'Amount'},C_MONEY),
+  {k:'pay',label:'Payment'},{k:'stage',label:'Status'},
+  {k:'city',label:'City'},{k:'state',label:'State'},{k:'courier',label:'Courier'}
+];
+
+function openDrill(title,sub,cols,rows,name){
+  el('drillTitle').textContent=title;
+  el('drillSub').textContent=sub||'';
+  sortState.tblDrill=null;pageState.tblDrill=0;
+  renderTable('tblDrill',cols,rows,'No matching records.',
+    {name:name||('Drill · '+title),pageSize:25,pager:'pgDrill'});
+  el('drill').style.display='flex';
+  document.body.style.overflow='hidden';
+}
+function closeDrill(){
+  el('drill').style.display='none';
+  document.body.style.overflow='';
+}
+el('drillClose').onclick=closeDrill;
+el('drill').onclick=function(e){if(e.target===this)closeDrill();};
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'&&el('drill').style.display!=='none')closeDrill();
+});
+
+/** Orders drill: the line items behind an aggregated row. */
+function drillOrders(O,label,value,matchF){
+  var rows=O.filter(matchF);
+  var orders=uniq(rows,function(r){return r.ref;});
+  openDrill(label+': '+value,
+    fmtN(orders)+' orders · '+fmtN(rows.length)+' line items · '+
+      fmtINR(sum(rows,function(r){return r.price;})),
+    DRILL_ORDER_COLS,rows,'Drill '+label+' '+value);
 }
 
 function groupBy(rows,keyF,labelF){
@@ -3208,7 +3357,9 @@ var C_SHARE={r:1,pct:1,fmt:function(v){return v.toFixed(1)+'%';},xl:function(v){
  */
 function mixTable(elmId,name,label,O,keyF,filterKey){
   renderTable(elmId,
-    [{k:'key',label:label},
+    [{k:'key',label:label,fmt:filterKey?function(v){
+        return esc(v)+' <button class=\"mixfilter\" data-fk=\"'+esc(filterKey)+'\" data-fv=\"'+esc(v)+
+          '\" title=\"Filter the whole dashboard to '+esc(v)+'\">filter</button>';}:null},
      {k:'orders',label:'Orders',r:1},
      {k:'units',label:'Units',r:1},
      Object.assign({k:'rev',label:'Revenue',bar:1},C_MONEY),
@@ -3216,7 +3367,7 @@ function mixTable(elmId,name,label,O,keyF,filterKey){
     groupBy(O,keyF),
     'No orders in this range.',
     {name:name,totals:1,
-     onRow:filterKey?function(row){toggleOnly(filterKey,row.key);}:null});
+     drill:function(row){drillOrders(O,label,row.key,function(x){return keyF(x)===row.key;});}});
 }
 
 /** Simple count + share table, for dimensions with no revenue attached. */
@@ -3291,7 +3442,9 @@ function tblCourier(O){
      Object.assign({k:'rev',label:'Revenue'},C_MONEY),
      Object.assign({k:'codRev',label:'COD Revenue'},C_MONEY),
      Object.assign({k:'preRev',label:'Prepaid Revenue'},C_MONEY)],
-    rows,'No courier data in this range.',{name:'Courier Split',totals:1});
+    rows,'No courier data in this range.',{name:'Courier Split',totals:1,
+     drill:function(r){drillOrders(O,'Courier',r.key,function(x){
+       return (x.courier||'').trim().toLowerCase().replace(/s+/g,' ')===r.key.trim().toLowerCase().replace(/s+/g,' ');});}});
 }
 /** Which warehouse holds the stock, and how much of the catalogue each covers. */
 function tblWarehouse(){
@@ -3318,7 +3471,18 @@ function tblWarehouse(){
         var u=rs.reduce(function(a,r){return a+r.units;},0);
         var k=rs.reduce(function(a,r){return a+r.skus;},0);
         return k?(u/k).toFixed(1):'—';}}],
-    rows,'No inventory data.',{name:'Warehouse Bifurcation',totals:1});
+    rows,'No inventory data.',{name:'Warehouse Bifurcation',totals:1,
+     drill:function(r){
+       var isAaj=/aaj/i.test(r.key);
+       var m=S.map(function(x){return {sku:x.sku,product:x.product,units:isAaj?(x.aaj||0):(x.prep||0),
+           other:isAaj?(x.prep||0):(x.aaj||0),available:x.available};})
+         .filter(function(x){return x.units>0;}).sort(function(a,b){return b.units-a.units;});
+       openDrill(r.key,fmtN(r.units)+' units across '+fmtN(m.length)+' SKUs',
+         [{k:'sku',label:'SKU / EAN'},{k:'product',label:'Product'},
+          {k:'units',label:'Units Here',r:1,bar:1},
+          {k:'other',label:'Units Elsewhere',r:1},
+          {k:'available',label:'Total Available',r:1}],
+         m,'Drill '+r.key);}});
 
   el('invSource').textContent='Inventory Bifurcation sheet';
 }
@@ -3360,7 +3524,8 @@ function tblTop5(O){
         xl:function(v,r){return v||r.key;}},
        Object.assign({k:key,label:label,bar:1},col),
        Object.assign({k:'pctOfTotal',label:'%'},C_SHARE)],
-      rows,'No orders in this range.',{name:name});
+      rows,'No orders in this range.',{name:name,
+       drill:function(r){drillOrders(O,'SKU',r.label||r.key,function(x){return x.pid===r.key;});}});
   }
   mini('tblTop5Orders','Top 5 SKUs by Orders','orders','Orders',{r:1});
   mini('tblTop5Rev','Top 5 SKUs by Revenue','rev','Revenue',C_MONEY);
@@ -3374,7 +3539,8 @@ function tblSku(O){
      Object.assign({k:'rev',label:'Revenue',bar:1},C_MONEY),
      Object.assign({k:'share',label:'Share'},C_SHARE)],
     groupBy(O,function(r){return r.pid;},function(r){return r.product;}).slice(0,25),
-    'No orders in this range.',{name:'Top SKUs'});
+    'No orders in this range.',{name:'Top SKUs',
+     drill:function(r){drillOrders(O,'SKU',r.label||r.key,function(x){return x.pid===r.key;});}});
 }
 function tblState(O){
   renderTable('tblState',
@@ -3383,7 +3549,8 @@ function tblState(O){
      Object.assign({k:'aov',label:'AOV'},C_MONEY),
      Object.assign({k:'share',label:'Share'},C_SHARE)],
     groupBy(O,function(r){return r.state;}).slice(0,25),
-    'No orders in this range.',{name:'Top States'});
+    'No orders in this range.',{name:'Top States',
+     drill:function(r){drillOrders(O,'State',r.key,function(x){return x.state===r.key;});}});
 }
 function tblCity(O){
   renderTable('tblCity',
@@ -3391,7 +3558,8 @@ function tblCity(O){
      Object.assign({k:'rev',label:'Revenue',bar:1},C_MONEY),
      Object.assign({k:'share',label:'Share'},C_SHARE)],
     groupBy(O,function(r){return r.city;}).slice(0,25),
-    'No city data in this range.',{name:'Top Cities'});
+    'No city data in this range.',{name:'Top Cities',
+     drill:function(r){drillOrders(O,'City',r.key,function(x){return x.city===r.key;});}});
 }
 function tblChannel(O,Cc){
   var g=groupBy(O,function(r){return r.channel;});
@@ -3406,7 +3574,8 @@ function tblChannel(O,Cc){
      {k:'crate',label:'Cancel %',r:1,fmt:function(v){
        return v>8?'<span class="tone-red">'+v.toFixed(1)+'%</span>':v.toFixed(1)+'%';},
       xl:function(v){return +(v||0).toFixed(2);}}],
-    g,'No orders in this range.',{name:'Channel Performance'});
+    g,'No orders in this range.',{name:'Channel Performance',
+     drill:function(r){drillOrders(O,'Channel',r.key,function(x){return x.channel===r.key;});}});
 }
 function tblCat(O){
   renderTable('tblCat',
@@ -3415,7 +3584,8 @@ function tblCat(O){
      Object.assign({k:'aov',label:'AOV'},C_MONEY),
      Object.assign({k:'share',label:'Share'},C_SHARE)],
     groupBy(O,function(r){return r.category;}),
-    'No category data in this range.',{name:'Category Performance'});
+    'No category data in this range.',{name:'Category Performance',
+     drill:function(r){drillOrders(O,'Category',r.key,function(x){return x.category===r.key;});}});
 }
 function tblCanc(Cc){
   var m={};
@@ -3431,7 +3601,15 @@ function tblCanc(Cc){
      Object.assign({k:'share',label:'Share'},C_SHARE),
      Object.assign({k:'value',label:'Value Lost'},C_MONEY),
      {k:'by',label:'Cancelled By'}],
-    rows,'No cancellations in this period — good sign.',{name:'Cancellation Reasons'});
+    rows,'No cancellations in this period — good sign.',{name:'Cancellation Reasons',
+     drill:function(r){
+       var m=Cc.filter(function(x){return x.reason===r.reason;});
+       openDrill('Cancel reason: '+r.reason,fmtN(m.length)+' cancellations · '+fmtINR(sum(m,function(x){return x.value;})),
+         [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v||'';}},
+          {k:'order',label:'Order'},{k:'sku',label:'SKU'},{k:'product',label:'Product'},
+          {k:'qty',label:'Qty',r:1},Object.assign({k:'value',label:'Value'},C_MONEY),
+          {k:'by',label:'Cancelled By'},{k:'channel',label:'Channel'}],
+         m,'Drill Cancel Reason');}});
 }
 function tblAging(rows){
   var over7=rows.filter(function(r){return r.age>7;}).length;
@@ -3449,7 +3627,8 @@ function tblAging(rows){
      Object.assign({k:'value',label:'Value'},C_MONEY)],
     rows.slice().sort(function(a,b){return b.age-a.age;}),
     'No aging data uploaded, or nothing is open.',
-    {name:'Ageing Orders',pageSize:15,pager:'pgAging'});
+    {name:'Ageing Orders',pageSize:15,pager:'pgAging',
+     drill:function(r){drillOrders(DATA.orders,'Order',r.order,function(x){return x.ref===r.order;});}});
 }
 /* days of cover = units on hand / units sold per day in the current window */
 /**
@@ -3501,7 +3680,8 @@ function tblStock(O,span){
      {k:'cover',label:'Days Cover',r:1,fmt:coverFmt}],
     stockRows(O,span).filter(function(r){return r.available<20;})
       .sort(function(a,b){return a.available-b.available;}),
-    'No low-stock SKUs — or no inventory sheet loaded yet.',{name:'Stock Alerts',totals:1});
+    'No low-stock SKUs — or no inventory sheet loaded yet.',{name:'Stock Alerts',totals:1,
+     drill:function(r){drillStock(O,r);}});
 }
 function tblStockAll(O,span){
   renderTable('tblStockAll',
@@ -3522,8 +3702,33 @@ function tblStockAll(O,span){
         aajShare:r.available>0?(r.aaj||0)/r.available*100:null});})
       .sort(function(a,b){return a.available-b.available;}),
     'No inventory sheet loaded yet.',
-    {name:'Inventory Ledger',pageSize:20,pager:'pgStockAll',totals:1});
+    {name:'Inventory Ledger',pageSize:20,pager:'pgStockAll',totals:1,
+     drill:function(r){drillStock(O,r);}});
 }
+/**
+ * Drill for an inventory row. Matching stock to sales relies on the two sources
+ * agreeing on an identifier, and for most SKUs they do not - the sheet carries a
+ * different EAN prefix from Orders_Raw. So lead with the stock split, which is
+ * always true, and add the sales lines only when they genuinely match.
+ */
+function drillStock(O,r){
+  var m=O.filter(function(x){return x.pid===r.sku||x.sku===r.sku||x.ean===r.sku;});
+  var stock=[{k:'AAJ Warehouse',units:r.aaj||0},
+             {k:'PrepOnline Warehouse',units:r.prep||0}];
+  var tot=(r.aaj||0)+(r.prep||0);
+  stock.forEach(function(x){x.share=tot?x.units/tot*100:0;});
+  var sub=fmtN(r.available||tot)+' units on hand';
+  if(m.length){
+    sub+=' · '+fmtN(m.length)+' matching line items in this date range';
+  }else{
+    sub+=' · no sales matched: this SKU’s identifier does not appear in Orders_Raw';
+  }
+  openDrill((r.product||r.sku)+' · '+r.sku,sub,
+    [{k:'k',label:'Warehouse'},{k:'units',label:'Units',r:1,bar:1},
+     Object.assign({k:'share',label:'% of Stock'},C_SHARE)],
+    stock,'Drill Stock');
+}
+
 function tblExplorer(O){
   el('expTag').textContent=fmtN(O.length)+' line items match the current filters';
   renderTable('tblExplorer',
@@ -3543,6 +3748,7 @@ function tblExplorer(O){
      {k:'delivered',label:'Delivered',fmt:function(v){return fmtDay(v);},xl:function(v){return v||'';}}],
     O,'No line items match these filters.',
     {name:'Order Line Items',pageSize:+el('expSize').value,pager:'pgExplorer',
+     drill:function(r){drillOrders(DATA.orders,'Order',r.ref,function(x){return x.ref===r.ref;});},
      sort:{k:'day',dir:-1}});
 }
 el('expSize').onchange=function(){pageState.tblExplorer=0;render();};
@@ -3562,7 +3768,8 @@ function tblDaily(days,byDay){
      Object.assign({k:'cancVal',label:'Value Lost'},C_MONEY),
      {k:'delivered',label:'Delivered',r:1}],
     rows,'No days in this range.',
-    {name:'Daily Summary',pageSize:20,pager:'pgDaily',sort:{k:'day',dir:-1}});
+    {name:'Daily Summary',pageSize:20,pager:'pgDaily',sort:{k:'day',dir:-1},
+     drill:function(r){drillOrders(ordersIn(F.from,F.to),'Date',fmtDay(r.day),function(x){return x.day===r.day;});}});
 }
 
 /* ============================ EXCEL EXPORT ============================ */
