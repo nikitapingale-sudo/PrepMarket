@@ -1131,7 +1131,7 @@ function buildTicker(s){
   if(ch!=='—')add('\u{1F6D2}','Top channel',esc(ch),'info');
   add('\u{1F69A}','Open orders',fmtN(s.pending),s.pending?'warn':'');
   add('⏱','Aged 7d+',fmtN(s.over7),s.over7?'down':'up');
-  if(DATA.stock.length)add('\u{1F4E6}','Out of stock',fmtN(s.oos),s.oos?'down':'up');
+  if(stockNow().length)add('\u{1F4E6}','Out of stock',fmtN(s.oos),s.oos?'down':'up');
 
   var html=items.join('');
   el('ticker').innerHTML=html+html; /* duplicated for a seamless loop */
@@ -1478,8 +1478,9 @@ function render(){
   var avgShip=shipLags.length?shipLags.reduce(function(a,b){return a+b;},0)/shipLags.length:null;
   var avgDel=delLags.length?delLags.reduce(function(a,b){return a+b;},0)/delLags.length:null;
 
-  var lowStock=DATA.stock.filter(function(r){return r.available<20;}).length;
-  var oos=DATA.stock.filter(function(r){return r.available<=0;}).length;
+  var SN=stockNow();
+  var lowStock=SN.filter(function(r){return r.available<20;}).length;
+  var oos=SN.filter(function(r){return r.available<=0;}).length;
 
   function delta(cur,prev,invert){
     if(F.preset==='all'||(prev===0&&cur===0))return '';
@@ -1541,7 +1542,7 @@ function render(){
       a1:'var(--amber)',a2:'var(--green)',gl:'rgba(251,191,36,.25)',d:'',
       dr:sRev.length?{dim:'day',value:days[bestDayIdx],label:fmtDay(days[bestDayIdx])}:null},
     {lab:'Active SKUs',v:uniq(O,function(r){return r.pid;}),f:fmtN,
-      sub:'of '+DATA.stock.length+' in the catalogue',
+      sub:'of '+SN.length+' in the catalogue',
       a1:'var(--violet)',a2:'var(--cyan)',gl:'var(--glow-violet)',d:''},
     {lab:'Top State Share',v:topShare(O,function(r){return r.state;}),
       f:function(n){return n.toFixed(1)+'%';},sub:topName(O,function(r){return r.state;}),
@@ -1579,33 +1580,49 @@ function render(){
       a1:'var(--blue)',a2:'var(--violet)',gl:'rgba(96,165,250,.25)',d:''}
   ]);
 
-  var stockUnits=sum(DATA.stock,function(r){return r.available;});
-  var aajUnits=sum(DATA.stock,function(r){return r.aaj||0;});
-  var prepUnits=sum(DATA.stock,function(r){return r.prep||0;});
+  var stockUnits=sum(SN,function(r){return r.available;});
+  var aajUnits=sum(SN,function(r){return r.aaj||0;});
+  var prepUnits=sum(SN,function(r){return r.prep||0;});
   /* a SKU held in only one warehouse cannot be shipped from the other */
-  var oneSite=DATA.stock.filter(function(r){
+  var oneSite=SN.filter(function(r){
     return r.available>0&&((r.aaj||0)===0||(r.prep||0)===0);}).length;
-  paintKpis('invKpis',[
-    {lab:'SKUs Tracked',v:DATA.stock.length,f:fmtN,
-      sub:fmtN(DATA.stock.filter(function(r){return r.available>0;}).length)+' with stock',
+  var whOnly=drillWarehouse();
+  var stockAllSites=sum(DATA.stock,function(r){return r.available;});
+  function whSub(units){
+    return whOnly
+      ? (stockAllSites?(units/stockAllSites*100).toFixed(1)+'% of all '+fmtN(stockAllSites)+' units':'no stock')
+      : (stockUnits?(units/stockUnits*100).toFixed(1)+'% of stock':'no stock');
+  }
+  /* Under a warehouse drill two of these stop saying anything: the other site
+     sits at a flat zero, and every SKU is single-site by definition. Dropping
+     them is better than leaving cards that only restate the drill. */
+  var invCards=[
+    {lab:'SKUs Tracked',v:SN.length,f:fmtN,
+      sub:fmtN(SN.filter(function(r){return r.available>0;}).length)+
+        (whOnly?' stocked at '+(/aaj/i.test(whOnly)?'AAJ':'PrepOnline'):' with stock'),
       a1:'var(--cyan)',a2:'var(--violet)',gl:'var(--glow-cyan)',d:''},
-    {lab:'Total Inventory',v:stockUnits,f:fmtN,sub:'units across both warehouses',
+    {lab:'Total Inventory',v:stockUnits,f:fmtN,
+      sub:whOnly?'units at '+whOnly:'units across both warehouses',
       a1:'var(--green)',a2:'var(--cyan)',gl:'rgba(52,211,153,.3)',d:''},
-    {lab:'AAJ Warehouse',v:aajUnits,f:fmtN,
-      sub:stockUnits?(aajUnits/stockUnits*100).toFixed(1)+'% of stock':'no stock',
+    {lab:'AAJ Warehouse',v:aajUnits,f:fmtN,sub:whSub(aajUnits),
       a1:'var(--blue)',a2:'var(--cyan)',gl:'rgba(96,165,250,.25)',d:'',
       dr:{dim:'warehouse',value:'AAJ Warehouse'}},
-    {lab:'PrepOnline Warehouse',v:prepUnits,f:fmtN,
-      sub:stockUnits?(prepUnits/stockUnits*100).toFixed(1)+'% of stock':'no stock',
+    {lab:'PrepOnline Warehouse',v:prepUnits,f:fmtN,sub:whSub(prepUnits),
       a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:'',
       dr:{dim:'warehouse',value:'PrepOnline Warehouse'}},
-    {lab:'Out Of Stock',v:oos,f:fmtN,sub:'zero units in either warehouse',
+    {lab:'Out Of Stock',v:oos,f:fmtN,
+      sub:whOnly?'zero units at '+whOnly:'zero units in either warehouse',
       a1:'var(--red)',a2:'var(--red)',gl:'rgba(248,113,113,.3)',d:''},
     {lab:'Low Stock',v:lowStock-oos,f:fmtN,sub:'1-19 units left',
       a1:'var(--amber)',a2:'var(--red)',gl:'rgba(251,191,36,.25)',d:''},
-    {lab:'Single-Site SKUs',v:oneSite,f:fmtN,sub:'stocked in only one warehouse',
+    {lab:'Single-Site SKUs',v:oneSite,f:fmtN,
+      sub:'stocked in only one warehouse',
       a1:'var(--amber)',a2:'var(--violet)',gl:'rgba(251,191,36,.25)',d:''}
-  ]);
+  ];
+  if(whOnly)invCards=invCards.filter(function(c){
+    return c.lab!=='Single-Site SKUs'&&
+      !(/Warehouse$/.test(c.lab)&&c.lab!==whOnly);});
+  paintKpis('invKpis',invCards);
 
   el('rangeTag').textContent=F.from===F.to?fmtDay(F.from):fmtDay(days[0])+' → '+fmtDay(days[days.length-1]);
   el('expCount').textContent=fmtN(O.length);
@@ -2801,7 +2818,7 @@ function drawInsights(s){
     (s.avgShip!=null?', with dispatch in '+s.avgShip.toFixed(1)+' days.':'.'));
 
   /* ---------------- INVENTORY ---------------- */
-  if(DATA.stock.length){
+  if(stockNow().length){
     if(s.oos)add('Inventory','\u{1F6D1}','var(--red)','<b>'+s.oos+' SKUs</b> are fully out of stock '+
       'and cannot be sold right now.');
     if(s.lowStock-s.oos>0)add('Inventory','\u{1F4C9}','var(--amber)','<b>'+(s.lowStock-s.oos)+
@@ -2840,7 +2857,7 @@ function drawInsights(s){
       esc(lop.slice(0,2).map(function(r){
         return (r.product||r.sku)+' ('+((r.aaj||0)?'AAJ only':'PrepOnline only')+')';}).join(', '))+'.');
 
-    var incoming=sum(DATA.stock,function(r){return r.toReceive;});
+    var incoming=sum(stockNow(),function(r){return r.toReceive;});
     if(incoming)add('Inventory','\u{1F69B}','var(--cyan)','<b>'+fmtN(incoming)+' units</b> are inbound '+
       'against '+fmtN(s.stockUnits)+' on hand.');
   }
@@ -3162,7 +3179,7 @@ function drawAgingChart(rows){
 
 function drawStockCharts(){
   var T=chartTheme();
-  var low=DATA.stock.slice().sort(function(a,b){return a.available-b.available;}).slice(0,12);
+  var low=stockNow().slice().sort(function(a,b){return a.available-b.available;}).slice(0,12);
   killChart('stockChart');
   chartMsg('stockChart',low.length?null:'&#128230;',low.length?null:'No stock report uploaded yet.');
   var lowSku=low.map(function(r){return r.sku;});
@@ -3178,14 +3195,21 @@ function drawStockCharts(){
       plugins:{legend:{display:false},tooltip:T.tt}}});
 
   /* stacked split so you can see, per SKU, which warehouse actually holds it */
-  var top=DATA.stock.slice().sort(function(a,b){return b.available-a.available;}).slice(0,12);
+  var whNow=drillWarehouse();
+  var top=stockNow().slice().sort(function(a,b){return b.available-a.available;}).slice(0,12);
   killChart('whChart');
   chartMsg('whChart',top.length?null:'&#128230;',top.length?null:'No inventory data.');
   var topSku=top.map(function(r){return r.sku;});
   if(top.length)charts.whChart=new Chart(el('whChart'),{type:'bar',
     data:{labels:top.map(function(r){
         var p=r.product||r.sku;return p.length>22?p.slice(0,21)+'…':p;}),
-      datasets:[
+      /* under a warehouse drill one series is flat zero, so plot the drilled
+         site alone instead of a stack with an invisible half */
+      datasets:whNow
+        ? [{label:whNow,data:top.map(function(r){return r.available;}),
+            backgroundColor:hexA(cssVar(/aaj/i.test(whNow)?'--blue':'--violet'),.85),
+            borderRadius:4,maxBarThickness:20,stack:'w'}]
+        : [
         {label:'AAJ',data:top.map(function(r){return r.aaj||0;}),
           backgroundColor:hexA(cssVar('--blue'),.85),borderRadius:4,maxBarThickness:20,stack:'w'},
         {label:'PrepOnline',data:top.map(function(r){return r.prep||0;}),
@@ -3371,7 +3395,19 @@ function drillOrderRefs(){
   return set;
 }
 
-/** Inventory rows carry no warehouse column, so that dimension is a predicate. */
+/**
+ * Inventory rows carry no warehouse column, so that dimension is applied here.
+ *
+ * A warehouse drill PROJECTS rather than filters: "available" becomes that
+ * site's units and the other site drops to zero. Filtering alone would have
+ * kept combined quantities under a single-warehouse heading - the page would
+ * say "AAJ Warehouse" while still counting PrepOnline's stock in the totals,
+ * the out-of-stock count and days-of-cover. Projecting means every downstream
+ * figure describes the one warehouse without any of them knowing about drills.
+ *
+ * SKUs the site holds none of are kept, not dropped: zero units at AAJ is a
+ * real answer about AAJ, and dropping them would quietly shrink "SKUs tracked".
+ */
 function drillStockRows(rows){
   var out=rows;
   DRILL.forEach(function(d){
@@ -3379,10 +3415,22 @@ function drillStockRows(rows){
       out=out.filter(function(r){return String(r.sku)===String(d.value);});
     }else if(d.dim==='warehouse'){
       var aaj=/aaj/i.test(d.value);
-      out=out.filter(function(r){return (aaj?(r.aaj||0):(r.prep||0))>0;});
+      out=out.map(function(r){
+        var units=aaj?(r.aaj||0):(r.prep||0);
+        return Object.assign({},r,{
+          available:units,aaj:aaj?units:0,prep:aaj?0:units});});
     }
   });
   return out;
+}
+
+/** The stock the page should be describing right now. */
+function stockNow(){return drillStockRows(DATA.stock);}
+
+/** The warehouse currently drilled into, or null. */
+function drillWarehouse(){
+  for(var i=DRILL.length-1;i>=0;i--)if(DRILL[i].dim==='warehouse')return DRILL[i].value;
+  return null;
 }
 
 /**
@@ -3572,7 +3620,7 @@ function tblCourier(O){
 }
 /** Which warehouse holds the stock, and how much of the catalogue each covers. */
 function tblWarehouse(){
-  var S=DATA.stock;
+  var S=stockNow(),wh=drillWarehouse();
   var tot=sum(S,function(r){return r.available;});
   var rows=[
     {key:'AAJ Warehouse',units:sum(S,function(r){return r.aaj||0;}),
@@ -3580,6 +3628,9 @@ function tblWarehouse(){
     {key:'PrepOnline Warehouse',units:sum(S,function(r){return r.prep||0;}),
      skus:S.filter(function(r){return (r.prep||0)>0;}).length}
   ];
+  /* drilled into one site: showing the other at a flat zero would read as
+     "PrepOnline holds nothing", which is not what the drill means */
+  if(wh)rows=rows.filter(function(r){return r.key===wh;});
   rows.forEach(function(r){
     r.share=tot?r.units/tot*100:0;
     r.perSku=r.skus?r.units/r.skus:0;
@@ -3598,7 +3649,9 @@ function tblWarehouse(){
     rows,'No inventory data.',{name:'Warehouse Bifurcation',totals:1,
      drill:function(r){drillTo('warehouse',r.key);}});
 
-  el('invSource').textContent='Inventory Bifurcation sheet';
+  el('invSource').textContent=wh
+    ? wh+' · Inventory Bifurcation sheet'
+    : 'Inventory Bifurcation sheet';
 }
 
 /**
@@ -3755,7 +3808,7 @@ function velocityMap(O,span){
 }
 function stockRows(O,span){
   var vel=velocityMap(O,span);
-  return drillStockRows(DATA.stock).map(function(r){
+  return stockNow().map(function(r){
     var v=vel[r.sku]||0;
     return Object.assign({},r,{
       velocity:+v.toFixed(2),
@@ -3778,32 +3831,45 @@ function whFmt(v,r){
   return r.available>0?'<span class="tone-amber" title="none here, stock sits in the other warehouse">0</span>':'0';
 }
 function tblStock(O,span){
-  renderTable('tblStock',
-    [{k:'sku',label:'SKU'},{k:'product',label:'Title'},
-     {k:'aaj',label:'AAJ',r:1,fmt:whFmt},
-     {k:'prep',label:'PrepOnline',r:1,fmt:whFmt},
-     {k:'available',label:'Total',r:1,fmt:availFmt},
-     {k:'velocity',label:'Units/Day',r:1},
-     {k:'cover',label:'Days Cover',r:1,fmt:coverFmt}],
+  /* drilled into one site, the other site's column is all zeros and the total
+     just repeats the first - so drop both rather than pad the table out */
+  var wh=drillWarehouse();
+  var cols=[{k:'sku',label:'SKU'},{k:'product',label:'Title'}];
+  if(!wh){
+    cols.push({k:'aaj',label:'AAJ',r:1,fmt:whFmt},
+              {k:'prep',label:'PrepOnline',r:1,fmt:whFmt},
+              {k:'available',label:'Total',r:1,fmt:availFmt});
+  }else{
+    cols.push({k:'available',label:'Units at '+wh,r:1,fmt:availFmt});
+  }
+  cols.push({k:'velocity',label:'Units/Day',r:1},
+            {k:'cover',label:'Days Cover',r:1,fmt:coverFmt});
+  renderTable('tblStock',cols,
     stockRows(O,span).filter(function(r){return r.available<20;})
       .sort(function(a,b){return a.available-b.available;}),
     'No low-stock SKUs — or no inventory sheet loaded yet.',{name:'Stock Alerts',totals:1,
      drill:function(r){drillTo('invsku',r.sku,r.product||r.sku);}});
 }
 function tblStockAll(O,span){
-  renderTable('tblStockAll',
-    [{k:'sku',label:'SKU'},{k:'product',label:'Title'},
-     {k:'aaj',label:'AAJ Warehouse',r:1,fmt:whFmt},
-     {k:'prep',label:'PrepOnline Warehouse',r:1,fmt:whFmt},
-     {k:'available',label:'Total Inventory',r:1,fmt:availFmt,bar:1},
-     {k:'aajShare',label:'AAJ %',r:1,
-      fmt:function(v){return v==null?'—':v.toFixed(0)+'%';},
-      xl:function(v){return v==null?'':+v.toFixed(1);},
-      totalOf:function(rs){
-        var a=sum(rs,function(r){return r.aaj||0;}),t=sum(rs,function(r){return r.available;});
-        return t?(a/t*100).toFixed(0)+'%':'—';}},
-     {k:'velocity',label:'Units/Day',r:1},
-     {k:'cover',label:'Days Cover',r:1,fmt:coverFmt}],
+  var wh=drillWarehouse();
+  var cols=[{k:'sku',label:'SKU'},{k:'product',label:'Title'}];
+  if(!wh){
+    cols.push({k:'aaj',label:'AAJ Warehouse',r:1,fmt:whFmt},
+      {k:'prep',label:'PrepOnline Warehouse',r:1,fmt:whFmt},
+      {k:'available',label:'Total Inventory',r:1,fmt:availFmt,bar:1},
+      {k:'aajShare',label:'AAJ %',r:1,
+       fmt:function(v){return v==null?'—':v.toFixed(0)+'%';},
+       xl:function(v){return v==null?'':+v.toFixed(1);},
+       totalOf:function(rs){
+         var a=sum(rs,function(r){return r.aaj||0;}),t=sum(rs,function(r){return r.available;});
+         return t?(a/t*100).toFixed(0)+'%':'—';}});
+  }else{
+    /* the share column would read 100% on every row under a warehouse drill */
+    cols.push({k:'available',label:'Units at '+wh,r:1,fmt:availFmt,bar:1});
+  }
+  cols.push({k:'velocity',label:'Units/Day',r:1},
+            {k:'cover',label:'Days Cover',r:1,fmt:coverFmt});
+  renderTable('tblStockAll',cols,
     stockRows(O,span).map(function(r){
       return Object.assign({},r,{
         aajShare:r.available>0?(r.aaj||0)/r.available*100:null});})
