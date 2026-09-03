@@ -681,6 +681,10 @@
 
   <!-- ================= INVENTORY ================= -->
   <section class="pane" id="pane-inventory">
+    <div id="invEmpty" style="display:none">
+      <div class="card"><div class="empty" id="invEmptyMsg"></div></div>
+    </div>
+    <div id="invBody">
     <div class="kpis" id="invKpis"></div>
 
     <div class="card">
@@ -702,6 +706,7 @@
       <h2>Full stock ledger <span class="tag">with days of cover from current sales rate</span><span class="spacer"></span><button class="xls" data-xls="tblStockAll">&#8681; EXCEL</button></h2>
       <div class="overflow" id="tblStockAll"></div>
       <div class="pager" id="pgStockAll"></div>
+    </div>
     </div>
   </section>
 
@@ -1552,7 +1557,7 @@ function render(){
   drawStockCharts();
 
   /* mix tables (these replaced the doughnut charts) */
-  tblPayMix(O);tblCancBy(Cc);tblCourier(O);tblWarehouse();
+  tblPayMix(O);tblCancBy(Cc);tblCourier(O);tblWarehouse();checkInventorySource();
 
   renderClicks(days);
   renderFunnel(days);
@@ -3332,8 +3337,25 @@ function tblWarehouse(){
         return k?(u/k).toFixed(1):'—';}}],
     rows,'No inventory data.',{name:'Warehouse Bifurcation',totals:1});
 
-  el('invSource').textContent=DATA.stockSource==='inventory-bifurcation'
-    ? 'Inventory Bifurcation sheet' : 'Stock_Raw fallback';
+  el('invSource').textContent='Inventory Bifurcation sheet';
+}
+
+/**
+ * Inventory has exactly one source now. If it cannot be read, say so with the
+ * real reason rather than rendering a page of zeros that reads as "no stock".
+ */
+function checkInventorySource(){
+  var ok=DATA.stock.length>0;
+  el('invBody').style.display=ok?'block':'none';
+  el('invEmpty').style.display=ok?'none':'block';
+  if(ok)return;
+  el('invEmptyMsg').innerHTML='<span class="big">&#128230;</span>'+
+    '<b>Cannot read the Inventory Bifurcation sheet.</b><br><br>'+
+    '<span style="color:var(--red)">'+esc(DATA.stockError||'No rows returned.')+'</span><br><br>'+
+    'Open <b>PrepMarket Inventory AAJ &lt;&gt; PrepOnline</b> &rarr; <b>Share</b> &rarr; '+
+    'General access &rarr; <b>Anyone with the link</b> &rarr; <b>Viewer</b>.'+
+    '<br><br>On Vercel, also set <code style="color:var(--cyan)">INVENTORY_SHEET_ID</code> '+
+    'under Project Settings &rarr; Environment Variables, then redeploy.';
 }
 
 function tblTop5(O){

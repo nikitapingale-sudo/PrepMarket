@@ -47,7 +47,6 @@ const TABS = {
   orders: "Orders_Raw",
   cancellations: "Cancellations_Raw",
   aging: "Aging_Raw",
-  stock: "Stock_Raw",
   returns: "Pending Returns report",
   clicks: "Banner_Clicks",
   conversion: "Prepmarket_Conversion",
@@ -581,43 +580,23 @@ function normalizeInventory(raw) {
   return out;
 }
 
-function normalizeStock(raw) {
-  const out = [];
-  for (const o of raw) {
-    const sku = strip(pick(o, ["SKU", "sku", "Product SKU"]));
-    if (!sku) continue;
-    const available = num(pick(o, ["Available Quantity", "Available", "Qty Available"]));
-    const reserved =
-      num(pick(o, ["Reserved (Not Picked)", "Reserved Not Picked"])) +
-      num(pick(o, ["Reserved (Picked)", "Reserved Picked"]));
-    out.push({
-      sku,
-      product: strip(pick(o, ["Product Name", "product_name"])),
-      category: strip(pick(o, ["Category", "Product Category"])) || "Uncategorized",
-      available,
-      reserved,
-      toReceive: num(pick(o, ["To Receive", "Incoming", "On Order"])),
-      damaged: num(pick(o, ["Damaged", "Damaged Quantity"])),
-      mrp: num(pick(o, ["MRP", "Price", "Selling Price"])),
-    });
-  }
-  return out;
-}
 
 /* ---------- handler ---------- */
 export async function buildPayload() {
-  const [ordersRaw, cancRaw, agingRaw, stockRaw, returnsRaw, clicksResult, funnel,
-         convRaw, invRaw] = await Promise.all([
+  const [ordersRaw, cancRaw, agingRaw, returnsRaw, clicksResult, funnel,
+         convRaw, invResult] = await Promise.all([
     fetchTab(TABS.orders),
     fetchTab(TABS.cancellations),
     fetchTab(TABS.aging),
-    fetchTab(TABS.stock),
     // optional sources: a missing one must not take the whole dashboard down
     fetchTab(TABS.returns).catch(() => []),
     loadClicks(),
     loadFunnel(),
     fetchTab(TABS.conversion).catch(() => []),
-    fetchTab(TABS.inventory, getInventorySheetId()).catch(() => []),
+    // capture the reason rather than swallowing it - the Inventory page shows it
+    fetchTab(TABS.inventory, getInventorySheetId())
+      .then((rows) => ({ rows, error: null }))
+      .catch((e) => ({ rows: [], error: e.message })),
   ]);
 
   const now = new Date();
@@ -630,11 +609,16 @@ export async function buildPayload() {
   const orders = normalizeOrders(ordersRaw);
   const cancellations = normalizeCanc(cancRaw);
   const aging = normalizeAging(agingRaw);
-  /* Inventory Bifurcation supersedes Stock_Raw; fall back to Stock_Raw only if
-     the inventory sheet is unreadable, so the page degrades instead of emptying. */
-  const inventory = normalizeInventory(invRaw);
-  const stock = inventory.length ? inventory : normalizeStock(stockRaw);
-  const stockSource = inventory.length ? "inventory-bifurcation" : "stock-raw";
+  /**
+   * Inventory comes from the "Inventory Bifurcation" tab and nothing else.
+   * There is deliberately no Stock_Raw fallback: falling back produced a page
+   * of zeros in the AAJ/PrepOnline columns that looked like real stock data.
+   * If the sheet cannot be read, the page says so instead.
+   */
+  const stock = normalizeInventory(invResult.rows);
+  const stockSource = "inventory-bifurcation";
+  const stockError = invResult.error ||
+    (stock.length ? null : 'The "Inventory Bifurcation" tab returned no rows.');
   const returns = normalizeReturns(returnsRaw);
   const estimated = fillFromOrders(orders, cancellations, aging, stock, returns);
 
@@ -654,7 +638,7 @@ export async function buildPayload() {
   return {
     orders, cancellations, aging, stock, returns,
     clicks: clicksResult.rows,
-    stockSource,
+    stockSource, stockError,
     funnel,
     conversion: normalizeConversion(convRaw),
     clicksDailyUsers: clicksResult.dailyUsers || {},
