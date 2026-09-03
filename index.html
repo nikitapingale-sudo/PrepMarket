@@ -267,12 +267,31 @@
   .modal-sub{font-size:11.5px;color:var(--mute);margin-top:2px}
   .modal-box .overflow{flex:1;overflow:auto;padding:0 17px}
   .modal-box .pager{padding:0 17px 15px}
-  button.mixfilter{margin-left:6px;padding:1px 7px;font:600 10px/1.6 var(--f);letter-spacing:.04em;
-    text-transform:uppercase;color:var(--violet);background:rgba(139,92,246,.12);
-    border:1px solid rgba(139,92,246,.35);border-radius:99px;cursor:pointer;opacity:.45}
-  tbody tr:hover button.mixfilter,button.mixfilter:hover{opacity:1;background:rgba(139,92,246,.24)}
+  .drillbar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:10px;
+    padding:9px 12px;border:1px solid rgba(34,211,238,.34);border-radius:12px;
+    background:linear-gradient(90deg,rgba(34,211,238,.13),rgba(139,92,246,.09))}
+  .hint{font-size:11.5px;color:var(--mute)}
+  .hint::before{content:'↗';color:var(--cyan);margin-right:5px;font-weight:700}
+  .dpath-lab{font:700 10px/1 var(--f);letter-spacing:.12em;text-transform:uppercase;
+    color:var(--cyan);margin-right:2px}
+  .dcrumb{display:inline-flex;align-items:baseline;gap:6px;padding:4px 10px;border-radius:99px;
+    font:600 12px/1.35 var(--f);color:var(--txt);cursor:pointer;
+    background:rgba(120,140,190,.14);border:1px solid var(--line2)}
+  .dcrumb:hover{background:rgba(248,113,113,.18);border-color:rgba(248,113,113,.5)}
+  .dcrumb i{font:700 9.5px/1 var(--f);letter-spacing:.1em;text-transform:uppercase;
+    font-style:normal;color:var(--mute)}
+  .dcrumb u{font:600 9.5px/1 var(--f);text-decoration:none;color:var(--amber);
+    padding:2px 5px;border-radius:5px;background:rgba(251,191,36,.16)}
+  .dcrumb.cur{background:rgba(34,211,238,.2);border-color:rgba(34,211,238,.55)}
+  .dcrumb.root{color:var(--mute)}
+  .btn.sm{padding:4px 10px;font-size:11.5px}
+  .kpi.drillable{cursor:zoom-in}
+  .kpi.drillable:hover{border-color:rgba(34,211,238,.55)}
+  .kpi.drillable .lab::after{content:'↗';margin-left:5px;opacity:0;color:var(--cyan)}
+  .kpi.drillable:hover .lab::after{opacity:1}
+  .kpi.ondrill{border-color:rgba(34,211,238,.6);box-shadow:0 0 0 1px rgba(34,211,238,.3) inset}
   tbody tr.drillable{cursor:zoom-in}
-  tbody tr.drillable:hover td{background:rgba(34,211,238,.1)}
+  tbody tr.drillable:hover td{background:rgba(34,211,238,.13)}
   tbody tr.drillable td:first-child{position:relative}
   tbody tr.drillable:hover td:first-child::after{content:'\2197';position:absolute;right:4px;
     opacity:.55;font-size:11px}
@@ -460,6 +479,9 @@
     <button class="btn ghost" id="resetF">Reset</button>
   </div>
   <div class="row"><div class="fchips" id="fchips"></div></div>
+  <div class="drillbar" id="drillbar" style="display:none"></div>
+  <div class="row" id="drillhint"><span class="hint">Click any KPI card, table row or chart bar
+    to drill the whole dashboard into it &middot; Esc steps back</span></div>
 </div>
 
 <div class="tabs" id="tabs">
@@ -520,7 +542,7 @@
     </div>
 
     <div class="grid2">
-      <div class="card"><h2>Payment split <span class="tag">click a row to drill &middot; use the chip to filter</span><span class="spacer"></span><button class="xls" data-xls="tblPayMix">&#8681; EXCEL</button></h2><div class="overflow" id="tblPayMix"></div></div>
+      <div class="card"><h2>Payment split <span class="tag">click a row to drill into it</span><span class="spacer"></span><button class="xls" data-xls="tblPayMix">&#8681; EXCEL</button></h2><div class="overflow" id="tblPayMix"></div></div>
       <div class="card"><h2>Category mix <span class="tag">click to filter</span></h2><div class="chartbox sm"><canvas id="catChart"></canvas></div></div>
     </div>
 
@@ -768,23 +790,6 @@
   </section>
 
 </main>
-
-<!-- drill-through: the records behind whatever row was clicked -->
-<div class="modal" id="drill" style="display:none">
-  <div class="modal-box">
-    <div class="modal-head">
-      <div>
-        <h3 id="drillTitle"></h3>
-        <div class="modal-sub" id="drillSub"></div>
-      </div>
-      <span class="spacer"></span>
-      <button class="xls" data-xls="tblDrill">&#8681; EXCEL</button>
-      <button class="btn ghost" id="drillClose" title="Close (Esc)">&times; Close</button>
-    </div>
-    <div class="overflow" id="tblDrill"></div>
-    <div class="pager" id="pgDrill"></div>
-  </div>
-</div>
 
 <footer>Auto-refreshes every 2 minutes &middot; Data source: EasyEcom exports in Google Sheets &middot; Every table exports to Excel</footer>
 
@@ -1388,20 +1393,23 @@ function passDims(r){
          inSel('state',r.state)&&
          inSel('cat',r.category)&&
          inSel('stage',r.stage)&&
-         matchQ(r);
+         matchQ(r)&&drillPass(r,'order');
 }
 function ordersIn(from,to){
   return DATA.orders.filter(function(r){return r.day>=from&&r.day<=to&&passDims(r);});
 }
 function cancIn(from,to){
+  var refs=drillOrderRefs();
   return DATA.cancellations.filter(function(r){
-    return r.day>=from&&r.day<=to&&
+    return r.day>=from&&r.day<=to&&drillPass(r,'canc')&&
+      (!refs||refs[r.order])&&
       (!F.q||[r.order,r.sku,r.product,r.reason,r.by].some(function(v){
         return v&&String(v).toLowerCase().indexOf(F.q)>=0;}));
   });
 }
 /* days actually inside the selected window, clamped to days we have data for */
 function daysInRange(){
+  var dd=drillDay();if(dd)return [dd];
   var lo=F.from==='2000-01-01'?null:F.from, hi=F.to==='2099-12-31'?null:F.to;
   if(!lo||!hi){
     var mn=null,mx=null;
@@ -1416,6 +1424,7 @@ function daysInRange(){
 /* ============================ RENDER ============================ */
 function render(){
   drawFilterChips();
+  drawDrillBar();
   syncMobileFilterSummary();
 
   var days=daysInRange();
@@ -1496,7 +1505,9 @@ function render(){
       a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:'',sp:sUnits,spc:cssVar('--violet')},
     {lab:'COD Share',v:nOrders?cod/nOrders*100:0,f:function(n){return n.toFixed(1)+'%';},
       sub:fmtN(cod)+' COD · '+fmtN(nOrders-cod)+' prepaid',
-      a1:'var(--amber)',a2:'var(--amber)',gl:'rgba(251,191,36,.25)',d:''},
+      a1:'var(--amber)',a2:'var(--amber)',gl:'rgba(251,191,36,.25)',d:'',
+      dr:{dim:'pay',value:topName(O.filter(function(r){return /cod|cash/i.test(r.pay);}),
+        function(r){return r.pay;})}},
     /* delta compares the count shown on the card, matching the Operations tab.
        Comparing the rate here instead made the two tabs disagree on direction. */
     {lab:'Cancellations',v:Cc.length,f:fmtN,sub:pct(cancRate)+' of line items · '+fmtK(cancVal)+' lost',
@@ -1527,19 +1538,26 @@ function render(){
       a1:'var(--cyan)',a2:'var(--violet)',gl:'var(--glow-cyan)',d:'',sp:sOrders,spc:cssVar('--cyan')},
     {lab:'Best Day',v:sRev.length?sRev[bestDayIdx]:0,f:fmtK,
       sub:sRev.length?fmtDay(days[bestDayIdx]):'—',
-      a1:'var(--amber)',a2:'var(--green)',gl:'rgba(251,191,36,.25)',d:''},
+      a1:'var(--amber)',a2:'var(--green)',gl:'rgba(251,191,36,.25)',d:'',
+      dr:sRev.length?{dim:'day',value:days[bestDayIdx],label:fmtDay(days[bestDayIdx])}:null},
     {lab:'Active SKUs',v:uniq(O,function(r){return r.pid;}),f:fmtN,
       sub:'of '+DATA.stock.length+' in the catalogue',
       a1:'var(--violet)',a2:'var(--cyan)',gl:'var(--glow-violet)',d:''},
     {lab:'Top State Share',v:topShare(O,function(r){return r.state;}),
       f:function(n){return n.toFixed(1)+'%';},sub:topName(O,function(r){return r.state;}),
-      a1:'var(--pink)',a2:'var(--violet)',gl:'rgba(244,114,182,.25)',d:''},
+      a1:'var(--pink)',a2:'var(--violet)',gl:'rgba(244,114,182,.25)',d:'',
+      dr:{dim:'state',value:topName(O,function(r){return r.state;})}},
     {lab:'Top SKU Share',v:topShare(O,function(r){return r.pid;}),
       f:function(n){return n.toFixed(1)+'%';},sub:topName(O,function(r){return r.product;}),
-      a1:'var(--blue)',a2:'var(--cyan)',gl:'rgba(96,165,250,.25)',d:''}
+      a1:'var(--blue)',a2:'var(--cyan)',gl:'rgba(96,165,250,.25)',d:'',
+      dr:{dim:'sku',value:topName(O,function(r){return r.pid;}),
+        label:topName(O,function(r){return r.product;})}}
   ]);
 
-  var agingRows=DATA.aging.filter(function(r){return !/deliver|cancel|complete/i.test(r.status);});
+  var agingRefs=drillOrderRefs();
+  var agingRows=DATA.aging.filter(function(r){
+    return !/deliver|cancel|complete/i.test(r.status)&&
+      drillPass(r,'age')&&(!agingRefs||agingRefs[r.order]);});
   var over7=agingRows.filter(function(r){return r.age>7;});
   var over3=agingRows.filter(function(r){return r.age>3;});
   paintKpis('opsKpis',[
@@ -1575,10 +1593,12 @@ function render(){
       a1:'var(--green)',a2:'var(--cyan)',gl:'rgba(52,211,153,.3)',d:''},
     {lab:'AAJ Warehouse',v:aajUnits,f:fmtN,
       sub:stockUnits?(aajUnits/stockUnits*100).toFixed(1)+'% of stock':'no stock',
-      a1:'var(--blue)',a2:'var(--cyan)',gl:'rgba(96,165,250,.25)',d:''},
+      a1:'var(--blue)',a2:'var(--cyan)',gl:'rgba(96,165,250,.25)',d:'',
+      dr:{dim:'warehouse',value:'AAJ Warehouse'}},
     {lab:'PrepOnline Warehouse',v:prepUnits,f:fmtN,
       sub:stockUnits?(prepUnits/stockUnits*100).toFixed(1)+'% of stock':'no stock',
-      a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:''},
+      a1:'var(--violet)',a2:'var(--pink)',gl:'var(--glow-violet)',d:'',
+      dr:{dim:'warehouse',value:'PrepOnline Warehouse'}},
     {lab:'Out Of Stock',v:oos,f:fmtN,sub:'zero units in either warehouse',
       a1:'var(--red)',a2:'var(--red)',gl:'rgba(248,113,113,.3)',d:''},
     {lab:'Low Stock',v:lowStock-oos,f:fmtN,sub:'1-19 units left',
@@ -1641,13 +1661,23 @@ function paintKpis(id,defs){
      12 cards across a single row leaves each one too narrow to read. */
   host.style.setProperty('--n',defs.length<=8?defs.length:Math.ceil(defs.length/2));
   host.innerHTML=defs.map(function(k,i){
-    return '<div class="kpi" style="--a1:'+k.a1+';--a2:'+k.a2+';--gl:'+k.gl+';animation-delay:'+(i*45)+'ms">'+
+    /* Only cards that stand for a slice of rows can be drilled. A rate or an
+       average is a measure, not a slice, so it stays inert rather than
+       pretending to be clickable. */
+    var dr=k.dr&&k.dr.value!=null&&k.dr.value!=='';
+    var on=dr&&DRILL.some(function(d){return d.dim===k.dr.dim&&d.value===String(k.dr.value);});
+    return '<div class="kpi'+(dr?' drillable':'')+(on?' ondrill':'')+'"'+
+      (dr?' data-dr="'+i+'" title="Drill the dashboard into '+esc(String(k.dr.label||k.dr.value))+'"':'')+
+      ' style="--a1:'+k.a1+';--a2:'+k.a2+';--gl:'+k.gl+';animation-delay:'+(i*45)+'ms">'+
       '<div class="glow"></div>'+
       '<div class="lab">'+k.lab+'</div><div class="val num" id="'+id+'v'+i+'"></div>'+
       '<div class="sub">'+k.sub+'</div>'+(k.d||'')+
       (k.sp?sparkline(k.sp,k.spc||cssVar('--cyan')):'')+'</div>';
   }).join('');
   defs.forEach(function(k,i){countUp(el(id+'v'+i),k.v,k.f);});
+  host.querySelectorAll('.kpi[data-dr]').forEach(function(c){
+    var k=defs[+c.dataset.dr];
+    c.onclick=function(){drillTo(k.dr.dim,k.dr.value,k.dr.label);};});
 }
 
 /* ============================ BANNER CLICKS ============================ */
@@ -1659,6 +1689,7 @@ function paintKpis(id,defs){
 function clicksIn(from,to){
   return DATA.clicks.filter(function(r){
     if(r.day&&(r.day<from||r.day>to))return false;
+    if(!drillPass(r,'click'))return false;
     if(!F.q)return true;
     return [r.src,r.dest].some(function(v){return v&&String(v).toLowerCase().indexOf(F.q)>=0;});
   });
@@ -1770,11 +1801,13 @@ function renderClicks(days){
       sub:'across '+activeDays+' active day'+(activeDays===1?'':'s'),
       a1:'var(--blue)',a2:'var(--cyan)',gl:'rgba(96,165,250,.25)',d:''},
     {lab:'Best Day',v:best,f:fmtN,sub:bestDay?fmtDay(bestDay):'—',
-      a1:'var(--amber)',a2:'var(--green)',gl:'rgba(251,191,36,.25)',d:''},
+      a1:'var(--amber)',a2:'var(--green)',gl:'rgba(251,191,36,.25)',d:'',
+      dr:bestDay?{dim:'day',value:bestDay,label:fmtDay(bestDay)}:null},
     {lab:'Top Destination',v:dests.length?dests[0].share:0,
       f:function(n){return n.toFixed(1)+'%';},
       sub:dests.length?shortUrl(dests[0].key):'—',
-      a1:'var(--pink)',a2:'var(--violet)',gl:'rgba(244,114,182,.25)',d:''}
+      a1:'var(--pink)',a2:'var(--violet)',gl:'rgba(244,114,182,.25)',d:'',
+      dr:dests.length?{dim:'dest',value:dests[0].key,label:shortUrl(dests[0].key)}:null}
   ]);
 
   drawClickInsights({C:C,days:days,byDay:byDay,dests:dests,srcs:srcs,total:total,
@@ -1794,14 +1827,10 @@ function renderClicks(days){
     {k:'clicks',label:'Clicks',r:1},{k:'users',label:'Signed-in',r:1},{k:'visitors',label:'Visitors',r:1}];
   renderTable('tblClkDest',urlCols('Destination URL'),dests,
     'No clicks in this range.',{name:'Click Destinations',totals:1,
-     drill:function(r){var m=C.filter(function(x){return (x.dest||'(none)')===r.key;});
-       openDrill('Destination: '+shortUrl(r.key),fmtN(r.clicks)+' clicks over '+fmtN(m.length)+' day/source rows',
-         clkDetailCols,m,'Drill Destination');}});
+     drill:function(r){drillTo('dest',r.key);}});
   renderTable('tblClkSrc',urlCols('Source Page'),srcs,
     'No clicks in this range.',{name:'Click Sources',totals:1,
-     drill:function(r){var m=C.filter(function(x){return (x.src||'(none)')===r.key;});
-       openDrill('Source: '+shortUrl(r.key),fmtN(r.clicks)+' clicks over '+fmtN(m.length)+' day/destination rows',
-         clkDetailCols,m,'Drill Source');}});
+     drill:function(r){drillTo('src',r.key);}});
 
   renderTable('tblClicks',
     [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v||'';}},
@@ -1813,13 +1842,7 @@ function renderClicks(days){
     C.slice().sort(function(a,b){return b.clicks-a.clicks;}),
     'No clicks in this range.',
     {name:'Click Detail',pageSize:25,pager:'pgClicks',totals:1,
-     drill:function(r){var m=C.filter(function(x){return x.src===r.src&&x.dest===r.dest;})
-         .sort(function(a,b){return a.day<b.day?1:-1;});
-       openDrill(shortUrl(r.src)+' → '+shortUrl(r.dest),
-         fmtN(m.reduce(function(a,x){return a+x.clicks;},0))+' clicks over '+fmtN(m.length)+' days',
-         [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
-          {k:'clicks',label:'Clicks',r:1,bar:1},{k:'users',label:'Signed-in',r:1},{k:'visitors',label:'Visitors',r:1}],
-         m,'Drill Click Pair');}});
+     drill:function(r){drillTo('src',r.src);drillTo('dest',r.dest);}});
 
   var daily=days.filter(function(d){return byDay[d]>0;}).map(function(d){
     var rows=C.filter(function(r){return r.day===d;});
@@ -1842,13 +1865,7 @@ function renderClicks(days){
     daily.sort(function(a,b){return a.day<b.day?1:-1;}),
     'No clicks in this range.',
     {name:'Clicks Daily Summary',pageSize:20,pager:'pgClkDaily',totals:1,
-     drill:function(r){var m=C.filter(function(x){return x.day===r.day;})
-         .sort(function(a,b){return b.clicks-a.clicks;});
-       openDrill('Clicks on '+fmtDay(r.day),fmtN(r.clicks)+' clicks across '+fmtN(m.length)+' source/destination pairs',
-         [{k:'src',label:'Source Page',fmt:urlCell,xl:function(v){return v;}},
-          {k:'dest',label:'Destination URL',fmt:urlCell,xl:function(v){return v;}},
-          {k:'clicks',label:'Clicks',r:1},{k:'users',label:'Signed-in',r:1},{k:'visitors',label:'Visitors',r:1}],
-         m,'Drill Clicks Day');}});
+     drill:function(r){drillTo('day',r.day);}});
 }
 
 /**
@@ -1972,7 +1989,8 @@ function drawClkTrend(days,byDay){
  * averaging daily percentages would weight a quiet day the same as a peak one.
  */
 function funnelIn(from,to){
-  return DATA.funnel.filter(function(r){return !r.day||(r.day>=from&&r.day<=to);});
+  return DATA.funnel.filter(function(r){
+    return (!r.day||(r.day>=from&&r.day<=to))&&drillPass(r,'fnl');});
 }
 /** Rate, or null when the denominator is missing so it reads "—" not "0%". */
 function rate(n,d){return d>0?n/d*100:null;}
@@ -2103,14 +2121,7 @@ function renderFunnel(days){
         entry:r.banner+r.wClick});}),
     'No funnel data in this range.',
     {name:'Ingress Funnel',totals:1,pageSize:20,pager:'pgFunnel',
-     drill:function(r){
-       var m=(DATA.widgetProducts||[]).filter(function(x){return x.day===r.day;})
-         .map(function(x){return Object.assign({},x,{ctr:rate(x.clicks,x.views)});})
-         .sort(function(a,b){return b.views-a.views;});
-       openDrill('Widget products on '+fmtDay(r.day),fmtN(m.length)+' products shown that day',
-         [{k:'product',label:'Product'},{k:'views',label:'Views',r:1},{k:'clicks',label:'Clicks',r:1},
-          {k:'ctr',label:'CTR',r:1,fmt:pctCell,xl:function(v){return v==null?'':+v.toFixed(2);}}],
-         m,'Drill Widget Day');}});
+     drill:function(r){drillTo('day',r.day);}});
 }
 
 /**
@@ -2120,7 +2131,7 @@ function renderFunnel(days){
  */
 function renderWidgetProducts(){
   var W=(DATA.widgetProducts||[]).filter(function(r){
-    return !r.day||(r.day>=F.from&&r.day<=F.to);});
+    return (!r.day||(r.day>=F.from&&r.day<=F.to))&&drillPass(r,'wp');});
   if(!W.length){el('wpCard').style.display='none';return;}
   el('wpCard').style.display='block';
 
@@ -2156,15 +2167,7 @@ function renderWidgetProducts(){
       totalOf:function(){return '100.0%';}}],
     rows,'No widget product data in this range.',
     {name:'Widget Product Performance',totals:1,pageSize:25,pager:'pgWidgetProd',
-     drill:function(r){
-       var m=W.filter(function(x){return x.product===r.key;})
-         .map(function(x){return Object.assign({},x,{ctr:rate(x.clicks,x.views)});})
-         .sort(function(a,b){return a.day<b.day?1:-1;});
-       openDrill(r.key,fmtN(r.views)+' views · '+fmtN(r.clicks)+' clicks · '+(r.ctr==null?'—':r.ctr.toFixed(2)+'%'),
-         [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
-          {k:'views',label:'Views',r:1},{k:'clicks',label:'Clicks',r:1},
-          {k:'ctr',label:'CTR',r:1,fmt:pctCell,xl:function(v){return v==null?'':+v.toFixed(2);}}],
-         m,'Drill Widget Product');}});
+     drill:function(r){drillTo('wproduct',r.key);}});
 }
 
 /** Horizontal funnel: how many of the people who saw a step took the next one. */
@@ -2440,7 +2443,7 @@ function renderE2E(){
         e2e:rate(r.orders,r.entry)});}),
     'No days where both entry-click and session data exist.',
     {name:'End To End Funnel',totals:1,pageSize:20,pager:'pgE2E',
-     drill:function(r){drillOrders(ordersIn(F.from,F.to),'Date',fmtDay(r.day),function(x){return x.day===r.day;});}});
+     drill:function(r){drillTo('day',r.day);}});
 }
 
 function drawE2EInsights(E,t){
@@ -2971,6 +2974,10 @@ function drawTrend(days,byDay,pFrom,pTo,span){
     data:{labels:labels,datasets:ds},
     options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
       animation:{duration:600,easing:'easeOutCubic'},
+      /* labels stay one-per-day in every trend mode, so the index maps straight
+         back onto the date it was built from */
+      onClick:chartDrill('day',days,function(v){return fmtDay(v);}).onClick,
+      onHover:chartDrill('day',days).onHover,
       scales:{
         y:{beginAtZero:true,ticks:{precision:0},grid:{color:T.grid},
           title:{display:true,text:'Orders / cancellations'}},
@@ -3003,9 +3010,8 @@ function drawDim(canvasId,O,keyF,type,fKey){
       backgroundColor:ks.map(function(k,i){return hexA(cols[i%cols.length],.85);}),
       hoverBackgroundColor:cols,borderRadius:6,maxBarThickness:26}]},
     options:{maintainAspectRatio:false,indexAxis:'y',animation:{duration:600},
-      onClick:function(evt,items){
-        if(items.length)toggleOnly(fKey,ks[items[0].index]);},
-      onHover:function(evt,items){evt.native.target.style.cursor=items.length?'pointer':'default';},
+      onClick:chartDrill(fKey,ks).onClick,
+      onHover:chartDrill(fKey,ks).onHover,
       scales:{x:{beginAtZero:true,grid:{color:T.grid},ticks:{callback:function(v){return fmtK(v);}}},
         y:{grid:{display:false}}},
       plugins:{legend:{display:false},
@@ -3027,10 +3033,8 @@ function drawStatus(O){
       backgroundColor:ks.map(function(k,i){return hexA(cols[i%cols.length],.85);}),
       hoverBackgroundColor:cols,borderRadius:6,maxBarThickness:26}]},
     options:{maintainAspectRatio:false,indexAxis:'y',animation:{duration:600},
-      onClick:function(evt,items){
-        if(!items.length)return;
-        toggleOnly('stage',ks[items[0].index]);},
-      onHover:function(evt,items){evt.native.target.style.cursor=items.length?'pointer':'default';},
+      onClick:chartDrill('stage',ks).onClick,
+      onHover:chartDrill('stage',ks).onHover,
       scales:{x:{beginAtZero:true,ticks:{precision:0},grid:{color:T.grid}},y:{grid:{display:false}}},
       plugins:{legend:{display:false},tooltip:T.tt}}});
 }
@@ -3129,6 +3133,7 @@ function drawCancReason(Cc){
         tension:.3,pointRadius:3,pointBackgroundColor:cssVar('--amber'),fill:false,yAxisID:'y1'}
     ]},
     options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},animation:{duration:600},
+      onClick:chartDrill('reason',ks).onClick,onHover:chartDrill('reason',ks).onHover,
       scales:{y:{beginAtZero:true,ticks:{precision:0},grid:{color:T.grid}},
         y1:{beginAtZero:true,max:100,position:'right',grid:{drawOnChartArea:false},
           ticks:{callback:function(v){return v+'%';}}},
@@ -3160,6 +3165,7 @@ function drawStockCharts(){
   var low=DATA.stock.slice().sort(function(a,b){return a.available-b.available;}).slice(0,12);
   killChart('stockChart');
   chartMsg('stockChart',low.length?null:'&#128230;',low.length?null:'No stock report uploaded yet.');
+  var lowSku=low.map(function(r){return r.sku;});
   if(low.length)charts.stockChart=new Chart(el('stockChart'),{type:'bar',
     data:{labels:low.map(function(r){return r.product.length>24?r.product.slice(0,23)+'…':r.product;}),
       datasets:[{label:'Available',data:low.map(function(r){return r.available;}),
@@ -3167,6 +3173,7 @@ function drawStockCharts(){
           return hexA(r.available<=0?cssVar('--red'):r.available<20?cssVar('--amber'):cssVar('--green'),.85);}),
         borderRadius:6,maxBarThickness:22}]},
     options:{maintainAspectRatio:false,indexAxis:'y',animation:{duration:600},
+      onClick:chartDrill('invsku',lowSku,function(v,i){return low[i].product||v;}).onClick,onHover:chartDrill('invsku',lowSku,function(v,i){return low[i].product||v;}).onHover,
       scales:{x:{beginAtZero:true,ticks:{precision:0},grid:{color:T.grid}},y:{grid:{display:false}}},
       plugins:{legend:{display:false},tooltip:T.tt}}});
 
@@ -3174,6 +3181,7 @@ function drawStockCharts(){
   var top=DATA.stock.slice().sort(function(a,b){return b.available-a.available;}).slice(0,12);
   killChart('whChart');
   chartMsg('whChart',top.length?null:'&#128230;',top.length?null:'No inventory data.');
+  var topSku=top.map(function(r){return r.sku;});
   if(top.length)charts.whChart=new Chart(el('whChart'),{type:'bar',
     data:{labels:top.map(function(r){
         var p=r.product||r.sku;return p.length>22?p.slice(0,21)+'…':p;}),
@@ -3185,6 +3193,8 @@ function drawStockCharts(){
       ]},
     options:{maintainAspectRatio:false,indexAxis:'y',animation:{duration:600},
       interaction:{mode:'index',intersect:false},
+      onClick:chartDrill('invsku',topSku,function(v,i){return top[i].product||v;}).onClick,
+      onHover:chartDrill('invsku',topSku).onHover,
       scales:{x:{stacked:true,beginAtZero:true,grid:{color:T.grid}},
         y:{stacked:true,grid:{display:false}}},
       plugins:{legend:{position:'bottom',labels:{usePointStyle:true,boxWidth:8}},tooltip:T.tt}}});
@@ -3267,9 +3277,7 @@ function renderTable(elmId,cols,data,emptyMsg,opts){
       tr.onclick=function(){rowFn(view[+tr.dataset.ri]);};});
   }
 
-  /* Rows drill; filtering keeps its own chip so one gesture cannot mean two things. */
-  host.querySelectorAll('button.mixfilter').forEach(function(b){
-    b.onclick=function(e){e.stopPropagation();toggleOnly(b.dataset.fk,b.dataset.fv);};});
+
 
   if(size&&opts.pager){
     var pages=Math.ceil(total/size);
@@ -3295,43 +3303,162 @@ function renderTable(elmId,cols,data,emptyMsg,opts){
  * shows what that something actually is - click a row, get the records behind
  * it, sortable and exportable like any other table.
  */
-var DRILL_ORDER_COLS=[
-  {k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v||'';}},
-  {k:'ref',label:'Order'},{k:'sku',label:'SKU'},{k:'product',label:'Product'},
-  {k:'category',label:'Category'},{k:'qty',label:'Units',r:1},
-  Object.assign({k:'price',label:'Amount'},C_MONEY),
-  {k:'pay',label:'Payment'},{k:'stage',label:'Status'},
-  {k:'city',label:'City'},{k:'state',label:'State'},{k:'courier',label:'Courier'}
-];
+/* ============================ DRILL-DOWN ============================
+ * Clicking a KPI card, a table row or a chart bar narrows the WHOLE dashboard
+ * to that slice - every page, every number, every chart - rather than opening a
+ * detail popup. Drills stack, so State -> City -> SKU reads as a path, and any
+ * one step can be undone without losing the steps before it.
+ *
+ * A drill sits on top of the global filters instead of writing into them: the
+ * filters are a deliberate view the user set up, and a drill is a temporary
+ * question asked of it. Keeping them separate means "back" restores exactly
+ * what was on screen before.
+ */
+var DRILL=[];
 
-function openDrill(title,sub,cols,rows,name){
-  el('drillTitle').textContent=title;
-  el('drillSub').textContent=sub||'';
-  sortState.tblDrill=null;pageState.tblDrill=0;
-  renderTable('tblDrill',cols,rows,'No matching records.',
-    {name:name||('Drill · '+title),pageSize:25,pager:'pgDrill'});
-  el('drill').style.display='flex';
-  document.body.style.overflow='hidden';
+/* Each dimension names the field it reads on every dataset it applies to.
+   A dataset with no entry simply is not narrowed by that dimension - a click
+   source cannot filter orders, and saying so beats silently showing zero. */
+var DRILL_DIMS={
+  day:      {lab:'Date',    order:'day', canc:'day', click:'day', fnl:'day', wp:'day', age:'day',
+             fmt:function(v){return fmtDay(v);}},
+  state:    {lab:'State',    order:'state', age:'state'},
+  city:     {lab:'City',     order:'city'},
+  pay:      {lab:'Payment',  order:'pay'},
+  cat:      {lab:'Category', order:'category'},
+  channel:  {lab:'Channel',  order:'channel'},
+  courier:  {lab:'Courier',  order:'courier'},
+  stage:    {lab:'Status',   order:'stage'},
+  sku:      {lab:'SKU',      order:'pid', name:1},
+  ref:      {lab:'Order',    order:'ref', canc:'order', age:'order'},
+  reason:   {lab:'Cancel reason', canc:'reason', scope:'Cancellations'},
+  src:      {lab:'Source page',   click:'src', scope:'Banner Clicks', fmt:shortUrl},
+  dest:     {lab:'Destination',   click:'dest', scope:'Banner Clicks', fmt:shortUrl},
+  wproduct: {lab:'Widget product', wp:'product', scope:'Funnel Report'},
+  invsku:   {lab:'Inventory SKU',  inv:'sku', scope:'Inventory'},
+  warehouse:{lab:'Warehouse',      inv:'wh',  scope:'Inventory'}
+};
+
+/** True when the row survives every drill step that applies to its dataset. */
+function drillPass(r,src){
+  for(var i=0;i<DRILL.length;i++){
+    var d=DRILL[i],def=DRILL_DIMS[d.dim],f=def&&def[src];
+    if(!f)continue;
+    if(String(r[f]==null?'':r[f])!==String(d.value))return false;
+  }
+  return true;
 }
-function closeDrill(){
-  el('drill').style.display='none';
-  document.body.style.overflow='';
+
+/* A date drill also collapses the range, so day-series charts show the one day
+   rather than a lone bar stranded in an otherwise empty month. */
+function drillDay(){
+  for(var i=DRILL.length-1;i>=0;i--)if(DRILL[i].dim==='day')return DRILL[i].value;
+  return null;
 }
-el('drillClose').onclick=closeDrill;
-el('drill').onclick=function(e){if(e.target===this)closeDrill();};
+
+/**
+ * Order references that survive the drill, for datasets that carry a reference
+ * but not the dimension being drilled. Null when no such dimension is active,
+ * which keeps the common case free of a full scan.
+ */
+function drillOrderRefs(){
+  var needsJoin=DRILL.some(function(d){
+    var def=DRILL_DIMS[d.dim];
+    return def&&def.order&&def.order!=='ref'&&def.order!=='day';});
+  if(!needsJoin)return null;
+  var set={};
+  DATA.orders.forEach(function(r){if(drillPass(r,'order'))set[r.ref]=1;});
+  return set;
+}
+
+/** Inventory rows carry no warehouse column, so that dimension is a predicate. */
+function drillStockRows(rows){
+  var out=rows;
+  DRILL.forEach(function(d){
+    if(d.dim==='invsku'||d.dim==='sku'){
+      out=out.filter(function(r){return String(r.sku)===String(d.value);});
+    }else if(d.dim==='warehouse'){
+      var aaj=/aaj/i.test(d.value);
+      out=out.filter(function(r){return (aaj?(r.aaj||0):(r.prep||0))>0;});
+    }
+  });
+  return out;
+}
+
+/**
+ * Push a drill step. Re-clicking the same slice removes it, so a row toggles
+ * rather than trapping the user one level deeper with every stray click.
+ */
+function drillTo(dim,value,label){
+  if(value==null||value==='')return;
+  value=String(value);
+  var at=-1;
+  for(var i=0;i<DRILL.length;i++)if(DRILL[i].dim===dim&&DRILL[i].value===value){at=i;break;}
+  if(at>=0){DRILL.splice(at,1);}
+  else{
+    /* one value per dimension: drilling Karnataka then Maharashtra means the
+       second replaces the first, it does not intersect to nothing */
+    DRILL=DRILL.filter(function(d){return d.dim!==dim;});
+    DRILL.push({dim:dim,value:value,label:label||value});
+  }
+  afterDrill();
+}
+/**
+ * Chart click -> drill. Charts already knew how to filter (toggleOnly); routing
+ * them through the same drill stack as rows and cards means one click means one
+ * thing everywhere, and the path across the top records where you went.
+ */
+function chartDrill(dim,labels,labelF){
+  return {
+    onClick:function(evt,items){
+      if(!items.length)return;
+      var v=labels[items[0].index];
+      drillTo(dim,v,labelF?labelF(v,items[0].index):v);},
+    onHover:function(evt,items){
+      evt.native.target.style.cursor=items.length?'zoom-in':'default';}
+  };
+}
+function drillPop(i){DRILL.splice(i,DRILL.length-i);afterDrill();}
+function drillClear(){if(!DRILL.length)return;DRILL=[];afterDrill();}
+function afterDrill(){
+  resetPages();
+  render();
+  try{window.scrollTo({top:0,behavior:'smooth'});}catch(e){window.scrollTo(0,0);}
+}
+
+/** The path across the top: where you are, and one click back to anywhere. */
+function drawDrillBar(){
+  var host=el('drillbar'),hint=el('drillhint');if(!host)return;
+  if(hint)hint.style.display=DRILL.length?'none':'';
+  if(!DRILL.length){host.style.display='none';host.innerHTML='';return;}
+  host.style.display='flex';
+  var h='<span class="dpath-lab">Drilled into</span>'+
+    '<button class="dcrumb root" data-pop="0" title="Back to everything">All data</button>';
+  DRILL.forEach(function(d,i){
+    var def=DRILL_DIMS[d.dim]||{};
+    var shown=def.fmt?def.fmt(d.value):d.label;
+    h+='<span class="dsep">&rsaquo;</span>'+
+       '<button class="dcrumb'+(i===DRILL.length-1?' cur':'')+'" data-pop="'+(i+1)+'" '+
+       'title="'+esc(def.lab+': '+d.value)+'">'+
+       '<i>'+esc(def.lab)+'</i>'+esc(String(shown).length>34?String(shown).slice(0,33)+'…':shown)+
+       (def.scope?'<u title="This dimension only exists on the '+esc(def.scope)+
+         ' data, so other pages stay unnarrowed">'+esc(def.scope)+' only</u>':'')+'</button>';
+  });
+  h+='<span class="spacer"></span><button class="btn ghost sm" id="drillReset">&times; Clear drill</button>';
+  host.innerHTML=h;
+  host.querySelectorAll('button[data-pop]').forEach(function(b){
+    b.onclick=function(){drillPop(+b.dataset.pop);};});
+  el('drillReset').onclick=drillClear;
+}
+
+/* Esc backs out one level - the cheapest way out of a drill you did not mean. */
 document.addEventListener('keydown',function(e){
-  if(e.key==='Escape'&&el('drill').style.display!=='none')closeDrill();
+  /* an open filter dropdown owns Esc first - closing it must not also undo a
+     drill the user is still looking at */
+  if(e.key==='Escape'&&DRILL.length&&!document.querySelector('.ms.open')){
+    drillPop(DRILL.length-1);
+  }
 });
-
-/** Orders drill: the line items behind an aggregated row. */
-function drillOrders(O,label,value,matchF){
-  var rows=O.filter(matchF);
-  var orders=uniq(rows,function(r){return r.ref;});
-  openDrill(label+': '+value,
-    fmtN(orders)+' orders · '+fmtN(rows.length)+' line items · '+
-      fmtINR(sum(rows,function(r){return r.price;})),
-    DRILL_ORDER_COLS,rows,'Drill '+label+' '+value);
-}
 
 function groupBy(rows,keyF,labelF){
   var m={};
@@ -3355,11 +3482,9 @@ var C_SHARE={r:1,pct:1,fmt:function(v){return v.toFixed(1)+'%';},xl:function(v){
  * actual orders, units and revenue on screen instead of only a slice angle,
  * plus sorting and Excel export for free.
  */
-function mixTable(elmId,name,label,O,keyF,filterKey){
+function mixTable(elmId,name,label,O,keyF,dim){
   renderTable(elmId,
-    [{k:'key',label:label,fmt:filterKey?function(v){
-        return esc(v)+' <button class=\"mixfilter\" data-fk=\"'+esc(filterKey)+'\" data-fv=\"'+esc(v)+
-          '\" title=\"Filter the whole dashboard to '+esc(v)+'\">filter</button>';}:null},
+    [{k:'key',label:label},
      {k:'orders',label:'Orders',r:1},
      {k:'units',label:'Units',r:1},
      Object.assign({k:'rev',label:'Revenue',bar:1},C_MONEY),
@@ -3367,7 +3492,7 @@ function mixTable(elmId,name,label,O,keyF,filterKey){
     groupBy(O,keyF),
     'No orders in this range.',
     {name:name,totals:1,
-     drill:function(row){drillOrders(O,label,row.key,function(x){return keyF(x)===row.key;});}});
+     drill:function(row){drillTo(dim||'pay',row.key);}});
 }
 
 /** Simple count + share table, for dimensions with no revenue attached. */
@@ -3443,8 +3568,7 @@ function tblCourier(O){
      Object.assign({k:'codRev',label:'COD Revenue'},C_MONEY),
      Object.assign({k:'preRev',label:'Prepaid Revenue'},C_MONEY)],
     rows,'No courier data in this range.',{name:'Courier Split',totals:1,
-     drill:function(r){drillOrders(O,'Courier',r.key,function(x){
-       return (x.courier||'').trim().toLowerCase().replace(/s+/g,' ')===r.key.trim().toLowerCase().replace(/s+/g,' ');});}});
+     drill:function(r){drillTo('courier',r.key);}});
 }
 /** Which warehouse holds the stock, and how much of the catalogue each covers. */
 function tblWarehouse(){
@@ -3472,17 +3596,7 @@ function tblWarehouse(){
         var k=rs.reduce(function(a,r){return a+r.skus;},0);
         return k?(u/k).toFixed(1):'—';}}],
     rows,'No inventory data.',{name:'Warehouse Bifurcation',totals:1,
-     drill:function(r){
-       var isAaj=/aaj/i.test(r.key);
-       var m=S.map(function(x){return {sku:x.sku,product:x.product,units:isAaj?(x.aaj||0):(x.prep||0),
-           other:isAaj?(x.prep||0):(x.aaj||0),available:x.available};})
-         .filter(function(x){return x.units>0;}).sort(function(a,b){return b.units-a.units;});
-       openDrill(r.key,fmtN(r.units)+' units across '+fmtN(m.length)+' SKUs',
-         [{k:'sku',label:'SKU / EAN'},{k:'product',label:'Product'},
-          {k:'units',label:'Units Here',r:1,bar:1},
-          {k:'other',label:'Units Elsewhere',r:1},
-          {k:'available',label:'Total Available',r:1}],
-         m,'Drill '+r.key);}});
+     drill:function(r){drillTo('warehouse',r.key);}});
 
   el('invSource').textContent='Inventory Bifurcation sheet';
 }
@@ -3525,7 +3639,7 @@ function tblTop5(O){
        Object.assign({k:key,label:label,bar:1},col),
        Object.assign({k:'pctOfTotal',label:'%'},C_SHARE)],
       rows,'No orders in this range.',{name:name,
-       drill:function(r){drillOrders(O,'SKU',r.label||r.key,function(x){return x.pid===r.key;});}});
+       drill:function(r){drillTo('sku',r.key,r.label||r.key);}});
   }
   mini('tblTop5Orders','Top 5 SKUs by Orders','orders','Orders',{r:1});
   mini('tblTop5Rev','Top 5 SKUs by Revenue','rev','Revenue',C_MONEY);
@@ -3540,7 +3654,7 @@ function tblSku(O){
      Object.assign({k:'share',label:'Share'},C_SHARE)],
     groupBy(O,function(r){return r.pid;},function(r){return r.product;}).slice(0,25),
     'No orders in this range.',{name:'Top SKUs',
-     drill:function(r){drillOrders(O,'SKU',r.label||r.key,function(x){return x.pid===r.key;});}});
+     drill:function(r){drillTo('sku',r.key,r.label||r.key);}});
 }
 function tblState(O){
   renderTable('tblState',
@@ -3550,7 +3664,7 @@ function tblState(O){
      Object.assign({k:'share',label:'Share'},C_SHARE)],
     groupBy(O,function(r){return r.state;}).slice(0,25),
     'No orders in this range.',{name:'Top States',
-     drill:function(r){drillOrders(O,'State',r.key,function(x){return x.state===r.key;});}});
+     drill:function(r){drillTo('state',r.key);}});
 }
 function tblCity(O){
   renderTable('tblCity',
@@ -3559,7 +3673,7 @@ function tblCity(O){
      Object.assign({k:'share',label:'Share'},C_SHARE)],
     groupBy(O,function(r){return r.city;}).slice(0,25),
     'No city data in this range.',{name:'Top Cities',
-     drill:function(r){drillOrders(O,'City',r.key,function(x){return x.city===r.key;});}});
+     drill:function(r){drillTo('city',r.key);}});
 }
 function tblChannel(O,Cc){
   var g=groupBy(O,function(r){return r.channel;});
@@ -3575,7 +3689,7 @@ function tblChannel(O,Cc){
        return v>8?'<span class="tone-red">'+v.toFixed(1)+'%</span>':v.toFixed(1)+'%';},
       xl:function(v){return +(v||0).toFixed(2);}}],
     g,'No orders in this range.',{name:'Channel Performance',
-     drill:function(r){drillOrders(O,'Channel',r.key,function(x){return x.channel===r.key;});}});
+     drill:function(r){drillTo('channel',r.key);}});
 }
 function tblCat(O){
   renderTable('tblCat',
@@ -3585,7 +3699,7 @@ function tblCat(O){
      Object.assign({k:'share',label:'Share'},C_SHARE)],
     groupBy(O,function(r){return r.category;}),
     'No category data in this range.',{name:'Category Performance',
-     drill:function(r){drillOrders(O,'Category',r.key,function(x){return x.category===r.key;});}});
+     drill:function(r){drillTo('cat',r.key);}});
 }
 function tblCanc(Cc){
   var m={};
@@ -3602,14 +3716,7 @@ function tblCanc(Cc){
      Object.assign({k:'value',label:'Value Lost'},C_MONEY),
      {k:'by',label:'Cancelled By'}],
     rows,'No cancellations in this period — good sign.',{name:'Cancellation Reasons',
-     drill:function(r){
-       var m=Cc.filter(function(x){return x.reason===r.reason;});
-       openDrill('Cancel reason: '+r.reason,fmtN(m.length)+' cancellations · '+fmtINR(sum(m,function(x){return x.value;})),
-         [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v||'';}},
-          {k:'order',label:'Order'},{k:'sku',label:'SKU'},{k:'product',label:'Product'},
-          {k:'qty',label:'Qty',r:1},Object.assign({k:'value',label:'Value'},C_MONEY),
-          {k:'by',label:'Cancelled By'},{k:'channel',label:'Channel'}],
-         m,'Drill Cancel Reason');}});
+     drill:function(r){drillTo('reason',r.reason);}});
 }
 function tblAging(rows){
   var over7=rows.filter(function(r){return r.age>7;}).length;
@@ -3628,7 +3735,7 @@ function tblAging(rows){
     rows.slice().sort(function(a,b){return b.age-a.age;}),
     'No aging data uploaded, or nothing is open.',
     {name:'Ageing Orders',pageSize:15,pager:'pgAging',
-     drill:function(r){drillOrders(DATA.orders,'Order',r.order,function(x){return x.ref===r.order;});}});
+     drill:function(r){drillTo('ref',r.order);}});
 }
 /* days of cover = units on hand / units sold per day in the current window */
 /**
@@ -3648,7 +3755,7 @@ function velocityMap(O,span){
 }
 function stockRows(O,span){
   var vel=velocityMap(O,span);
-  return DATA.stock.map(function(r){
+  return drillStockRows(DATA.stock).map(function(r){
     var v=vel[r.sku]||0;
     return Object.assign({},r,{
       velocity:+v.toFixed(2),
@@ -3681,7 +3788,7 @@ function tblStock(O,span){
     stockRows(O,span).filter(function(r){return r.available<20;})
       .sort(function(a,b){return a.available-b.available;}),
     'No low-stock SKUs — or no inventory sheet loaded yet.',{name:'Stock Alerts',totals:1,
-     drill:function(r){drillStock(O,r);}});
+     drill:function(r){drillTo('invsku',r.sku,r.product||r.sku);}});
 }
 function tblStockAll(O,span){
   renderTable('tblStockAll',
@@ -3703,32 +3810,8 @@ function tblStockAll(O,span){
       .sort(function(a,b){return a.available-b.available;}),
     'No inventory sheet loaded yet.',
     {name:'Inventory Ledger',pageSize:20,pager:'pgStockAll',totals:1,
-     drill:function(r){drillStock(O,r);}});
+     drill:function(r){drillTo('invsku',r.sku,r.product||r.sku);}});
 }
-/**
- * Drill for an inventory row. Matching stock to sales relies on the two sources
- * agreeing on an identifier, and for most SKUs they do not - the sheet carries a
- * different EAN prefix from Orders_Raw. So lead with the stock split, which is
- * always true, and add the sales lines only when they genuinely match.
- */
-function drillStock(O,r){
-  var m=O.filter(function(x){return x.pid===r.sku||x.sku===r.sku||x.ean===r.sku;});
-  var stock=[{k:'AAJ Warehouse',units:r.aaj||0},
-             {k:'PrepOnline Warehouse',units:r.prep||0}];
-  var tot=(r.aaj||0)+(r.prep||0);
-  stock.forEach(function(x){x.share=tot?x.units/tot*100:0;});
-  var sub=fmtN(r.available||tot)+' units on hand';
-  if(m.length){
-    sub+=' · '+fmtN(m.length)+' matching line items in this date range';
-  }else{
-    sub+=' · no sales matched: this SKU’s identifier does not appear in Orders_Raw';
-  }
-  openDrill((r.product||r.sku)+' · '+r.sku,sub,
-    [{k:'k',label:'Warehouse'},{k:'units',label:'Units',r:1,bar:1},
-     Object.assign({k:'share',label:'% of Stock'},C_SHARE)],
-    stock,'Drill Stock');
-}
-
 function tblExplorer(O){
   el('expTag').textContent=fmtN(O.length)+' line items match the current filters';
   renderTable('tblExplorer',
@@ -3748,7 +3831,7 @@ function tblExplorer(O){
      {k:'delivered',label:'Delivered',fmt:function(v){return fmtDay(v);},xl:function(v){return v||'';}}],
     O,'No line items match these filters.',
     {name:'Order Line Items',pageSize:+el('expSize').value,pager:'pgExplorer',
-     drill:function(r){drillOrders(DATA.orders,'Order',r.ref,function(x){return x.ref===r.ref;});},
+     drill:function(r){drillTo('ref',r.ref);},
      sort:{k:'day',dir:-1}});
 }
 el('expSize').onchange=function(){pageState.tblExplorer=0;render();};
@@ -3769,7 +3852,7 @@ function tblDaily(days,byDay){
      {k:'delivered',label:'Delivered',r:1}],
     rows,'No days in this range.',
     {name:'Daily Summary',pageSize:20,pager:'pgDaily',sort:{k:'day',dir:-1},
-     drill:function(r){drillOrders(ordersIn(F.from,F.to),'Date',fmtDay(r.day),function(x){return x.day===r.day;});}});
+     drill:function(r){drillTo('day',r.day);}});
 }
 
 /* ============================ EXCEL EXPORT ============================ */
