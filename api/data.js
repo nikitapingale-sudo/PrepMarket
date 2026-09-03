@@ -626,6 +626,8 @@ function fillFromOrders(orders, cancellations, aging, stock, returns) {
  */
 function normalizeInventory(raw) {
   const out = [];
+  // one page's bad input must never break every other page
+  if (!Array.isArray(raw)) return out;
   for (const o of raw) {
     const sku = strip(pick(o, ["SKU", "sku", "Product SKU", "EAN"]));
     if (!sku) continue;
@@ -651,23 +653,38 @@ function normalizeInventory(raw) {
 }
 
 
+/** Promise.all over an object, resolving to an object with the same keys. */
+async function allNamed(obj) {
+  const keys = Object.keys(obj);
+  const values = await Promise.all(keys.map((k) => obj[k]));
+  return Object.fromEntries(keys.map((k, i) => [k, values[i]]));
+}
+
 /* ---------- handler ---------- */
 export async function buildPayload() {
-  const [ordersRaw, cancRaw, agingRaw, returnsRaw, clicksResult, funnel,
-         convRaw, invResult, widgetProducts] = await Promise.all([
-    fetchTab(TABS.orders),
-    fetchTab(TABS.cancellations),
-    fetchTab(TABS.aging),
+  /**
+   * Named, not positional. A positional Promise.all list broke the whole
+   * dashboard once: a source added in the middle of the array shifted every
+   * later result by one, so the inventory handler received conversion rows and
+   * died with "raw is not iterable". Keys make the order irrelevant.
+   */
+  const {
+    ordersRaw, cancRaw, agingRaw, returnsRaw,
+    clicksResult, funnel, widgetProducts, convRaw, invResult,
+  } = await allNamed({
+    ordersRaw: fetchTab(TABS.orders),
+    cancRaw: fetchTab(TABS.cancellations),
+    agingRaw: fetchTab(TABS.aging),
     // optional sources: a missing one must not take the whole dashboard down
-    fetchTab(TABS.returns).catch(() => []),
-    loadClicks(),
-    loadFunnel(),
-    loadWidgetProducts(),
-    fetchTab(TABS.conversion).catch(() => []),
+    returnsRaw: fetchTab(TABS.returns).catch(() => []),
+    clicksResult: loadClicks(),
+    funnel: loadFunnel(),
+    widgetProducts: loadWidgetProducts(),
+    convRaw: fetchTab(TABS.conversion).catch(() => []),
     // capture the reason rather than swallowing it - the Inventory page shows it
-    fetchTabAny(TABS.inventory, getInventorySheetId(), "AAJ Warehouse")
+    invResult: fetchTabAny(TABS.inventory, getInventorySheetId(), "AAJ Warehouse")
       .catch((e) => ({ rows: [], name: null, error: e.message })),
-  ]);
+  });
 
   const now = new Date();
   const generatedAt = now.toLocaleString("en-IN", {
