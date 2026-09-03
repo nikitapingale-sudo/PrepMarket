@@ -202,6 +202,56 @@ ORDER BY event_date DESC`.trim();
 }
 
 /**
+ * Widget performance per product: how many people saw each product in the
+ * ingress widget, and how many clicked it.
+ *
+ * The two source tables genuinely disagree on the parameter name - the viewed
+ * event carries "products_name" (plural), the clicked event "product_name" -
+ * so the mismatch below is deliberate, not a typo. Values are single product
+ * titles in both and match exactly, which is what makes the join work.
+ *
+ * Returned per day so the dashboard can filter by date; it aggregates across
+ * widgets, since a product can appear in more than one.
+ */
+export function widgetProductSql(days = 30) {
+  const since = `current_date - INTERVAL '${Number(days) || 30}' DAY`;
+  return `
+WITH viewed AS (
+    SELECT
+        DATE(event_datetime) AS dt,
+        element_at(event_params, 'widget_name').string_value   AS wn,
+        element_at(event_params, 'products_name').string_value AS product_name,
+        COUNT(DISTINCT user_id) AS viewed_users
+    FROM pw_bq.silver_dbt_pwst_prep_online_ingress_viewed
+    WHERE DATE(event_datetime) >= ${since}
+    GROUP BY 1, 2, 3
+),
+clicked AS (
+    SELECT
+        DATE(event_datetime) AS dt,
+        element_at(event_params, 'widget_name').string_value  AS wn,
+        element_at(event_params, 'product_name').string_value AS product_name,
+        COUNT(DISTINCT user_id) AS clicked_users
+    FROM pw_bq.silver_dbt_pwst_prep_online_ingress_clicked
+    WHERE DATE(event_datetime) >= ${since}
+    GROUP BY 1, 2, 3
+)
+SELECT
+    v.dt                                  AS event_date,
+    v.product_name                        AS product_name,
+    SUM(v.viewed_users)                   AS viewed_users,
+    SUM(COALESCE(c.clicked_users, 0))     AS clicked_users
+FROM viewed v
+LEFT JOIN clicked c
+    ON  v.dt           = c.dt
+    AND v.wn           = c.wn
+    AND v.product_name = c.product_name
+WHERE v.product_name IS NOT NULL
+GROUP BY 1, 2
+ORDER BY 1 DESC, 3 DESC`.trim();
+}
+
+/**
  * Audience per DAY, queried separately because distinct counts cannot be added
  * up. Summing the per-row counts above would count one person once per banner
  * they clicked. This gives an accurate figure for each day, which the dashboard

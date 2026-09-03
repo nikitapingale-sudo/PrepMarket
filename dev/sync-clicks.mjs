@@ -32,7 +32,7 @@ for (const name of [".env.local", ".env"]) {
   } catch { /* file is optional */ }
 }
 
-const { trinoConfigured, trinoQuery, bannerClicksSql, bannerUsersByDaySql, funnelSql } =
+const { trinoConfigured, trinoQuery, bannerClicksSql, bannerUsersByDaySql, funnelSql, widgetProductSql } =
   await import("../api/trino.js");
 
 if (!trinoConfigured()) {
@@ -44,12 +44,13 @@ const days = Number(process.env.CLICKS_DAYS) || 90;
 console.log(`\n  Querying Trino for the last ${days} days...`);
 
 const funnelDays = Number(process.env.FUNNEL_DAYS) || 30;
-let rows, userRows, funnelRows;
+let rows, userRows, funnelRows, wpRows;
 try {
-  [rows, userRows, funnelRows] = await Promise.all([
+  [rows, userRows, funnelRows, wpRows] = await Promise.all([
     trinoQuery(bannerClicksSql(days), { timeoutMs: 120000 }),
     trinoQuery(bannerUsersByDaySql(days), { timeoutMs: 120000 }),
     trinoQuery(funnelSql(funnelDays), { timeoutMs: 150000 }),
+    trinoQuery(widgetProductSql(funnelDays), { timeoutMs: 150000 }),
   ]);
 } catch (e) {
   console.error("\n  Query failed: " + e.message);
@@ -107,6 +108,12 @@ const snapshot = {
     wView: Number(r.widget_viewed) || 0,
     wClick: Number(r.widget_clicks) || 0,
   })).filter((r) => r.day),
+  widgetProducts: (wpRows || []).map((r) => ({
+    day: String(r.event_date || "").slice(0, 10),
+    product: String(r.product_name || ""),
+    views: Number(r.viewed_users) || 0,
+    clicks: Number(r.clicked_users) || 0,
+  })).filter((r) => r.day && r.product),
 };
 
 writeFileSync(OUT, JSON.stringify(snapshot, null, 0));
@@ -116,6 +123,7 @@ console.log(`  total clicks: ${total.toLocaleString("en-IN")}`);
 console.log(`  signed-in   : ${userTotal.toLocaleString("en-IN")} (daily uniques, ${Object.keys(dailyUsers).length} days)`);
 console.log(`  visitors    : ${visitorTotal.toLocaleString("en-IN")} (daily uniques, incl. logged-out)`);
 console.log(`  funnel rows : ${(funnelRows || []).length} days of ingress data`);
+console.log(`  widget prod : ${(wpRows || []).length} product-day rows`);
 console.log(`  range       : ${snapshot.from} -> ${snapshot.to}`);
 console.log(`  written     : clicks-snapshot.json`);
 console.log(`\n  Now run "npm run deploy" to publish it (or use "npm run publish-clicks").\n`);

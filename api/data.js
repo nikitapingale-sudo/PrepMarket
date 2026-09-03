@@ -7,8 +7,8 @@
  * (otherwise Google returns an HTML login page instead of data).
  */
 
-import { trinoConfigured, trinoQuery, bannerClicksSql, bannerUsersByDaySql, funnelSql }
-  from "./trino.js";
+import { trinoConfigured, trinoQuery, bannerClicksSql, bannerUsersByDaySql, funnelSql,
+         widgetProductSql } from "./trino.js";
 
 /**
  * The Sheet ID is a secret in practice: the Sheet is shared "anyone with the
@@ -495,6 +495,38 @@ function normalizeFunnel(raw) {
   return out;
 }
 
+/** Per-product widget performance. Warehouse-only, so Vercel uses the snapshot. */
+function normalizeWidgetProducts(raw) {
+  const out = [];
+  for (const r of raw || []) {
+    const day = toDayStr(r.event_date);
+    const product = strip(r.product_name);
+    if (!day || !product) continue;
+    out.push({
+      day,
+      product,
+      views: num(r.viewed_users),
+      clicks: num(r.clicked_users),
+    });
+  }
+  return out;
+}
+
+let wpCache = null;
+async function loadWidgetProducts() {
+  if (wpCache && Date.now() - wpCache.at < CLICKS_TTL_MS) return wpCache.rows;
+  if (!trinoConfigured()) return [];
+  try {
+    const rows = normalizeWidgetProducts(
+      await trinoQuery(widgetProductSql(Number(process.env.FUNNEL_DAYS) || 30))
+    );
+    if (rows.length) wpCache = { at: Date.now(), rows };
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
 let funnelCache = null;
 async function loadFunnel() {
   if (funnelCache && Date.now() - funnelCache.at < CLICKS_TTL_MS) return funnelCache.rows;
@@ -622,7 +654,7 @@ function normalizeInventory(raw) {
 /* ---------- handler ---------- */
 export async function buildPayload() {
   const [ordersRaw, cancRaw, agingRaw, returnsRaw, clicksResult, funnel,
-         convRaw, invResult] = await Promise.all([
+         convRaw, invResult, widgetProducts] = await Promise.all([
     fetchTab(TABS.orders),
     fetchTab(TABS.cancellations),
     fetchTab(TABS.aging),
@@ -630,6 +662,7 @@ export async function buildPayload() {
     fetchTab(TABS.returns).catch(() => []),
     loadClicks(),
     loadFunnel(),
+    loadWidgetProducts(),
     fetchTab(TABS.conversion).catch(() => []),
     // capture the reason rather than swallowing it - the Inventory page shows it
     fetchTabAny(TABS.inventory, getInventorySheetId(), "AAJ Warehouse")
@@ -676,7 +709,7 @@ export async function buildPayload() {
     orders, cancellations, aging, stock, returns,
     clicks: clicksResult.rows,
     stockSource, stockError,
-    funnel,
+    funnel, widgetProducts,
     conversion: normalizeConversion(convRaw),
     clicksDailyUsers: clicksResult.dailyUsers || {},
     clicksDailyVisitors: clicksResult.dailyVisitors || {},

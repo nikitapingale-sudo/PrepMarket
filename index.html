@@ -650,6 +650,12 @@
         <div class="overflow" id="tblFunnel"></div>
         <div class="pager" id="pgFunnel"></div>
       </div>
+
+      <div class="card" id="wpCard" style="display:none">
+        <h2>Widget performance by product <span class="tag">views, clicks and CTR</span><span class="spacer"></span><button class="xls" data-xls="tblWidgetProd">&#8681; EXCEL</button></h2>
+        <div class="overflow" id="tblWidgetProd"></div>
+        <div class="pager" id="pgWidgetProd"></div>
+      </div>
     </div>
 
     <!-- ---- marketplace / on-site conversion funnel ---- -->
@@ -929,7 +935,7 @@ function applyData(d){
   DATA.orders=DATA.orders||[];DATA.cancellations=DATA.cancellations||[];
   DATA.aging=DATA.aging||[];DATA.stock=DATA.stock||[];
   DATA.clicks=DATA.clicks||[];DATA.funnel=DATA.funnel||[];
-  DATA.conversion=DATA.conversion||[];
+  DATA.conversion=DATA.conversion||[];DATA.widgetProducts=DATA.widgetProducts||[];
   EST=DATA.estimated||{};
   el('gen').textContent='synced '+d.generatedAt;
   drawFreshness();
@@ -970,6 +976,7 @@ function withClickSnapshot(d){
         d.clicksDailyUsers=s.dailyUsers||{};
         d.clicksDailyVisitors=s.dailyVisitors||{};
         if(s.funnel&&s.funnel.length&&!(d.funnel||[]).length)d.funnel=s.funnel;
+        if(s.widgetProducts&&s.widgetProducts.length&&!(d.widgetProducts||[]).length)d.widgetProducts=s.widgetProducts;
         d.clicksSource='snapshot';
         d.clicksSnapshotAt=s.generatedAt;
         d.clicksError=null;
@@ -1996,6 +2003,7 @@ function renderFunnel(days){
     entry:entry,bCtr:bCtr,wCtr:wCtr,eCtr:eCtr,expo:aX,aB:aB,aW:aW,days:Fn.length});
   drawFnlTrend(Fn);
   drawFnlCtr(Fn);
+  renderWidgetProducts();
 
   renderTable('tblFunnel',
     [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
@@ -2021,6 +2029,51 @@ function renderFunnel(days){
         entry:r.banner+r.wClick});}),
     'No funnel data in this range.',
     {name:'Ingress Funnel',totals:1,pageSize:20,pager:'pgFunnel'});
+}
+
+/**
+ * Per-product widget performance. Views and clicks are distinct users per day,
+ * so summing them across a range counts a returning visitor once per day - the
+ * CTR is still right because numerator and denominator are summed the same way.
+ */
+function renderWidgetProducts(){
+  var W=(DATA.widgetProducts||[]).filter(function(r){
+    return !r.day||(r.day>=F.from&&r.day<=F.to);});
+  if(!W.length){el('wpCard').style.display='none';return;}
+  el('wpCard').style.display='block';
+
+  var m={};
+  W.forEach(function(r){
+    m[r.product]=m[r.product]||{key:r.product,views:0,clicks:0};
+    m[r.product].views+=r.views;m[r.product].clicks+=r.clicks;});
+  var rows=Object.keys(m).map(function(k){
+    var x=m[k];x.ctr=rate(x.clicks,x.views);return x;})
+    .sort(function(a,b){return b.views-a.views;});
+  var totViews=rows.reduce(function(a,r){return a+r.views;},0);
+
+  renderTable('tblWidgetProd',
+    [{k:'key',label:'Product',
+      fmt:function(v){return '<span title="'+esc(v)+'">'+
+        esc(v.length>52?v.slice(0,51)+'…':v)+'</span>';},
+      xl:function(v){return v;}},
+     {k:'views',label:'Views',r:1,bar:1,tot:fmtN},
+     {k:'clicks',label:'Clicks',r:1,tot:fmtN},
+     {k:'ctr',label:'CTR',r:1,
+      fmt:function(v){
+        if(v==null)return pctCell(v);
+        /* highlight the ones actually converting attention into clicks */
+        return v>=4?'<span class="tone-green">'+v.toFixed(2)+'%</span>'
+          :v<1.5?'<span class="tone-red">'+v.toFixed(2)+'%</span>':v.toFixed(2)+'%';},
+      xl:function(v){return v==null?'':+v.toFixed(2);},
+      totalOf:function(rs){
+        var v=rate(sum(rs,function(r){return r.clicks;}),sum(rs,function(r){return r.views;}));
+        return v==null?'—':v.toFixed(2)+'%';}},
+     {k:'share',label:'% of Views',r:1,pct:0,
+      fmt:function(v,r){return totViews?(r.views/totViews*100).toFixed(1)+'%':'—';},
+      xl:function(v,r){return totViews?+(r.views/totViews*100).toFixed(2):'';},
+      totalOf:function(){return '100.0%';}}],
+    rows,'No widget product data in this range.',
+    {name:'Widget Product Performance',totals:1,pageSize:25,pager:'pgWidgetProd'});
 }
 
 /** Horizontal funnel: how many of the people who saw a step took the next one. */
@@ -3631,7 +3684,7 @@ el('exportAll').onclick=function(){
   var ids=['tblTop5Orders','tblTop5Rev','tblTop5Units',
     'tblPayMix','tblSku','tblState','tblCity','tblChannel','tblCat',
     'tblCancBy','tblCanc','tblCourier','tblAging',
-    'tblClkDest','tblClkSrc','tblClicks','tblClkDaily','tblE2E','tblFunnel','tblConv',
+    'tblClkDest','tblClkSrc','tblClicks','tblClkDaily','tblE2E','tblFunnel','tblWidgetProd','tblConv',
     'tblWarehouse','tblStock','tblStockAll','tblDaily','tblExplorer'];
   var have=ids.filter(function(i){return TABLES[i]&&TABLES[i].rows.length;});
   if(!have.length){alert('No data loaded yet.');return;}
