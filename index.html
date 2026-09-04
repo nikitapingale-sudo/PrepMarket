@@ -2101,6 +2101,23 @@ function alignedRate(rows,numKey,denKey){
 function windowNote(a,totalDays){
   return (a.days&&a.days<totalDays)?' · '+a.days+'d of data from '+fmtDay(a.from):'';
 }
+/**
+ * A zero here means the source table had not landed that day yet, not that
+ * nobody viewed the widget.
+ *
+ * The four ingress tables land at different times: PLP and banner had 03 Sept
+ * while the two widget tables stopped at 02 Sept. Rendering that as a flat 0
+ * says the widget collapsed to nothing, which is a much more alarming claim
+ * than "not in yet" - and it drags Total Entry Clicks down with it. A day with
+ * hundreds of thousands of events on every other table does not genuinely
+ * record zero, so 0 is shown as "not landed" instead.
+ */
+function eventCell(v,r){
+  if(v>0)return fmtN(v);
+  return '<span class="tone-mute" title="This source table had no rows for '+
+    esc(fmtDay(r.day))+' when the snapshot was taken — not yet landed, rather than zero traffic">'+
+    'not in yet</span>';
+}
 function pctCell(v){
   return v==null?'<span style="color:var(--mute)" title="no denominator for this day">—</span>'
     :v.toFixed(2)+'%';
@@ -2179,26 +2196,32 @@ function renderFunnel(days){
 
   renderTable('tblFunnel',
     [{k:'day',label:'Date',fmt:function(v){return fmtDay(v);},xl:function(v){return v;}},
-     {k:'plp',label:'PLP Viewed',r:1,tot:fmtN},
-     {k:'banner',label:'Banner Clicks',r:1,tot:fmtN},
+     {k:'plp',label:'PLP Viewed',r:1,tot:fmtN,fmt:eventCell},
+     {k:'banner',label:'Banner Clicks',r:1,tot:fmtN,fmt:eventCell},
      {k:'bCtr',label:'Banner CTR %',r:1,fmt:pctCell,
       xl:function(v){return v==null?'':+v.toFixed(2);},
       totalOf:function(rows){
         var a=alignedRate(rows,'banner','plp');
         return a.v==null?'—':a.v.toFixed(2)+'%';}},
-     {k:'wView',label:'Widget Viewed',r:1,tot:fmtN},
-     {k:'wClick',label:'Widget Clicks',r:1,tot:fmtN},
+     {k:'wView',label:'Widget Viewed',r:1,tot:fmtN,fmt:eventCell},
+     {k:'wClick',label:'Widget Clicks',r:1,tot:fmtN,fmt:eventCell},
      {k:'wCtr',label:'Widget CTR %',r:1,fmt:pctCell,
       xl:function(v){return v==null?'':+v.toFixed(2);},
       totalOf:function(rows){
         var a=alignedRate(rows,'wClick','wView');
         return a.v==null?'—':a.v.toFixed(2)+'%';}},
-     {k:'entry',label:'Total Entry Clicks',r:1,bar:1,tot:fmtN}],
+     {k:'entry',label:'Total Entry Clicks',r:1,bar:1,tot:fmtN,
+      fmt:function(v,r){
+        return r.partial
+          ? '<span class="tone-amber" title="one of the ingress tables had not landed this day, so this is a floor not a total">'+
+            fmtN(v)+' &#8595;</span>'
+          : fmtN(v);}}],
     Fn.map(function(r){
       return Object.assign({},r,{
         bCtr:rate(r.banner,r.plp),
         wCtr:rate(r.wClick,r.wView),
-        entry:r.banner+r.wClick});}),
+        entry:r.banner+r.wClick,
+        partial:!(r.plp>0)||!(r.banner>0)||!(r.wView>0)||!(r.wClick>0)});}),
     'No funnel data in this range.',
     {name:'Ingress Funnel',totals:1,pageSize:20,pager:'pgFunnel',
      drill:function(r){drillTo('day',r.day);}});
