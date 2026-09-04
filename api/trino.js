@@ -149,6 +149,12 @@ ORDER BY 1 DESC, 4 DESC`.trim();
  * Ingress funnel: PLP views -> banner clicks, and widget views -> widget clicks,
  * as distinct users per day.
  *
+ * PLP views come from pw_bq.silver_dbt_pwst_product_listing. The earlier source
+ * (mview.gold_dbt_pw_store_events filtered to event_name='pwst_product_listing')
+ * had days missing entirely - 25 Aug and 02 Sept came back as 0 PLP views while
+ * widget and banner events for those days existed - which made Banner CTR
+ * uncomputable on exactly those days. This table carries them.
+ *
  * Differences from the analyst's original: a rolling window instead of a fixed
  * start date, and no GROUPING SETS total row. The dashboard filters by date
  * client-side, so it has to compute its own totals - a pre-baked "Total" row
@@ -159,11 +165,10 @@ export function funnelSql(days = 30) {
   const since = `current_date - INTERVAL '${Number(days) || 30}' DAY`;
   return `
 WITH plp AS (
-    SELECT event_date, COUNT(DISTINCT user_id) AS v
-    FROM mview.gold_dbt_pw_store_events
-    WHERE event_name = 'pwst_product_listing'
-      AND event_date >= ${since}
-    GROUP BY event_date
+    SELECT DATE(event_datetime) AS event_date, COUNT(DISTINCT user_id) AS v
+    FROM pw_bq.silver_dbt_pwst_product_listing
+    WHERE DATE(event_datetime) >= ${since}
+    GROUP BY 1
 ),
 banner AS (
     SELECT DATE(event_datetime) AS event_date, COUNT(DISTINCT user_id) AS v

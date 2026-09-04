@@ -55,6 +55,8 @@ const TABS = {
   // exactly, rather than erroring - asking for "Inventory Bifurcation"
   // silently returned the "AAJ WH" tab and looked like valid data.
   inventory: ["Inventory Bifurcation ", "Inventory Bifurcation"],
+  // trailing space is the real tab name here too - see fetchTabAny
+  bundles: ["Bundle Child Mapping ", "Bundle Child Mapping"],
 };
 
 /* ---------- gviz fetch: returns [{header: value, ...}, ...] ---------- */
@@ -695,6 +697,43 @@ async function loadSkuCatalogue() {
   }
 }
 
+/**
+ * Bundle -> component rows.
+ *
+ * Some titles are inwarded only as children and sold only as combos, so their
+ * own stock line says nothing about what can actually be shipped. What matters
+ * is how many complete bundles the children add up to, which is a property of
+ * the set, not of any one row. This tab is what makes that computable.
+ *
+ * Component stock is carried here too, but the dashboard prefers the live
+ * Inventory Bifurcation numbers and uses these only as a fallback: two copies
+ * of the same quantity will drift, and the bifurcation tab is the one that
+ * gets updated.
+ */
+function normalizeBundles(raw) {
+  const out = [];
+  if (!Array.isArray(raw)) return out;
+  for (const o of raw) {
+    const bundleSku = strip(pick(o, ["Bundle_SKU (ISBN)", "Bundle_SKU", "Bundle SKU"]));
+    const compSku = strip(pick(o, ["Component_SKU (ISBN)", "Component_SKU", "Component SKU"]));
+    if (!bundleSku || !compSku) continue;
+    out.push({
+      bundleSku,
+      bundleName: strip(pick(o, ["Bundle_name", "Bundle Name"])),
+      shopifyBundleSku: strip(pick(o, ["Shopify Bundle_SKU", "Shopify Bundle SKU"])),
+      compSku,
+      compName: strip(pick(o, ["Component_name", "Component Name"])),
+      shopifyCompSku: strip(pick(o, ["Shopify Component_SKU", "Shopify Component SKU"])),
+      // no quantity column today; one of each is the only defensible default
+      per: num(pick(o, ["Qty per Bundle", "Quantity per Bundle", "Qty", "Quantity"])) || 1,
+      aaj: num(pick(o, ["AAJ Warehouse"])),
+      prep: num(pick(o, ["PrepOnline Warehouse"])),
+      total: num(pick(o, ["Total Inventory"])),
+    });
+  }
+  return out;
+}
+
 /** Promise.all over an object, resolving to an object with the same keys. */
 async function allNamed(obj) {
   const keys = Object.keys(obj);
@@ -712,7 +751,7 @@ export async function buildPayload() {
    */
   const {
     ordersRaw, cancRaw, agingRaw, returnsRaw,
-    clicksResult, funnel, widgetProducts, convRaw, invResult, skuNames,
+    clicksResult, funnel, widgetProducts, convRaw, invResult, skuNames, bundleRaw,
   } = await allNamed({
     ordersRaw: fetchTab(TABS.orders),
     cancRaw: fetchTab(TABS.cancellations),
@@ -727,6 +766,8 @@ export async function buildPayload() {
     invResult: fetchTabAny(TABS.inventory, getInventorySheetId(), "AAJ Warehouse")
       .catch((e) => ({ rows: [], name: null, error: e.message })),
     skuNames: loadSkuCatalogue(),
+    bundleRaw: fetchTabAny(TABS.bundles, getInventorySheetId(), "Bundle_SKU (ISBN)")
+      .then((r) => r.rows).catch(() => []),
   });
 
   const now = new Date();
@@ -768,6 +809,7 @@ export async function buildPayload() {
   return {
     orders, cancellations, aging, stock, returns,
     skuNames,
+    bundles: normalizeBundles(bundleRaw),
     clicks: clicksResult.rows,
     stockSource, stockError,
     funnel, widgetProducts,

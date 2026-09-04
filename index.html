@@ -228,6 +228,9 @@
   .pill.red{background:rgba(248,113,113,.1);color:var(--red);border-color:rgba(248,113,113,.35)}
   .pill.amber{background:rgba(251,191,36,.1);color:var(--amber);border-color:rgba(251,191,36,.35)}
   .pill.green{background:rgba(52,211,153,.1);color:var(--green);border-color:rgba(52,211,153,.35)}
+  .pill.vio{background:rgba(139,92,246,.12);color:var(--violet);border-color:rgba(139,92,246,.35)}
+  .pill.cyan{background:rgba(34,211,238,.12);color:var(--cyan);border-color:rgba(34,211,238,.35)}
+  td .pill{padding:2px 8px;font-size:10px}
   .tone-red{color:var(--red);font-weight:700}
   .tone-amber{color:var(--amber);font-weight:700}
   .tone-green{color:var(--green);font-weight:700}
@@ -757,6 +760,18 @@
       <div class="card"><h2>Stock split by warehouse</h2><div class="chartbox sm"><canvas id="whChart"></canvas></div></div>
     </div>
 
+    <div class="card" id="bundleCard" style="display:none">
+      <h2>Bundle inventory <span class="tag" id="bundleTag"></span><span class="spacer"></span><button class="xls" data-xls="tblBundles">&#8681; EXCEL</button></h2>
+      <div class="matchnote" id="bundleNote"></div>
+      <div class="overflow" id="tblBundles"></div>
+    </div>
+
+    <div class="card" id="bundleCompCard" style="display:none">
+      <h2>Bundle components <span class="tag">child SKUs and what they gate</span><span class="spacer"></span><button class="xls" data-xls="tblBundleComps">&#8681; EXCEL</button></h2>
+      <div class="overflow" id="tblBundleComps"></div>
+      <div class="pager" id="pgBundleComps"></div>
+    </div>
+
     <div class="card">
       <h2>Out of stock <span class="tag" id="oosTag"></span><span class="spacer"></span><button class="xls" data-xls="tblOOS">&#8681; EXCEL</button></h2>
       <div class="overflow" id="tblOOS"></div>
@@ -994,7 +1009,7 @@ function showBanner(msg){
 }
 function applyData(d){
   DATA=d;
-  SKUIDX=null;JOINABLE=null;   /* rebuilt lazily against the new stock + catalogue */
+  SKUIDX=null;JOINABLE=null;CHILDOF=null;   /* rebuilt lazily against the new data */
   DATA.orders=DATA.orders||[];DATA.cancellations=DATA.cancellations||[];
   DATA.aging=DATA.aging||[];DATA.stock=DATA.stock||[];
   DATA.clicks=DATA.clicks||[];DATA.funnel=DATA.funnel||[];
@@ -1601,6 +1616,10 @@ function render(){
   var oneSite=SN.filter(function(r){
     return r.available>0&&((r.aaj||0)===0||(r.prep||0)===0);}).length;
   var whOnly=drillWarehouse();
+  var invBundles=bundleRows(O,span);
+  var invShippable=invBundles.reduce(function(a,b){return a+b.shippable;},0);
+  var invChildUnits=sum(stockRows(O,span).filter(function(r){return r.kind==='Child';}),
+    function(r){return r.available;});
   var invSold=soldMap(O);
   var invDrr=invSold.placed/Math.max(1,span);
   var invJoin=joinableSkus();
@@ -1637,6 +1656,14 @@ function render(){
       a1:'var(--amber)',a2:'var(--red)',gl:'rgba(251,191,36,.25)',d:''},
     /* portfolio DRR is the sum of what actually moved, not an average of the
        per-SKU rates - averaging rates would weight a 1-unit SKU like a 100 */
+    {lab:'Bundles Buildable',v:invShippable,f:fmtN,
+      sub:invBundles.length?fmtN(invBundles.length)+' combos · capped by the scarcest child'
+        :'no bundle mapping',
+      a1:'var(--violet)',a2:'var(--cyan)',gl:'var(--glow-violet)',d:''},
+    {lab:'Child Stock',v:invChildUnits,f:fmtN,
+      sub:stockUnits?Math.round(invChildUnits/stockUnits*100)+'% of units sell only in a combo'
+        :'units that sell only in a combo',
+      a1:'var(--blue)',a2:'var(--violet)',gl:'rgba(96,165,250,.25)',d:''},
     {lab:'Qty Sold',v:invSold.placed,f:fmtN,
       sub:whOnly?'all sites — orders do not record which one shipped'
         :(invSold.unplaced?fmtN(invSold.unplaced)+' more units could not be matched'
@@ -1693,7 +1720,7 @@ function render(){
   tblTop5(O);
   tblSku(O);tblState(O);tblCity(O);tblChannel(O,Cc);tblCat(O);
   tblCanc(Cc);tblAging(agingRows);
-  tblOOS(O,span);tblStock(O,span);tblStockAll(O,span);drawMatchNote(O);
+  tblBundles(O,span);tblOOS(O,span);tblStock(O,span);tblStockAll(O,span);drawMatchNote(O);
   tblExplorer(O);tblDaily(days,byDay);
 }
 
@@ -2868,11 +2895,40 @@ function drawInsights(s){
       (risk.length>1?'s':'')+'</b> will run out within 7 days at the current rate — '+
       esc(risk.slice(0,2).map(function(r){return r.product+' ('+r.cover+'d)';}).join(', '))+'.');
 
-    var dead=sr.filter(function(r){return r.available>20&&r.sold===0;});
+    var dead=sr.filter(function(r){
+      return r.available>20&&r.sold===0&&r.kind!=='Child';});
     if(dead.length)add('Inventory','\u{1F4A4}','var(--mute)','<b>'+dead.length+' SKUs</b> hold stock '+
       'but sold nothing in this window'+
       (sum(dead,function(r){return r.value;})?' — '+fmtK(sum(dead,function(r){return r.value;}))+
       ' of capital sitting idle.':'.'));
+
+    /* ---- bundles ---- */
+    var brs=bundleRows(s.O,s.span);
+    if(brs.length){
+      var childUnits=sr.filter(function(r){return r.kind==='Child';})
+        .reduce(function(a,r){return a+r.available;},0);
+      if(childUnits)add('Inventory','🧩','var(--violet)',
+        '<b>'+fmtN(childUnits)+' units</b> ('+
+        (s.stockUnits?Math.round(childUnits/s.stockUnits*100):0)+'% of stock) are child SKUs '+
+        'that only sell inside a combo — their own zero sales are expected, not dead stock.');
+
+      var blocked=brs.filter(function(b){return b.shippable<=0;});
+      if(blocked.length)add('Inventory','🚫','var(--red)',
+        '<b>'+blocked.length+' bundle'+(blocked.length>1?'s':'')+'</b> cannot be built at all — '+
+        esc(blocked.slice(0,2).map(function(b){
+          return (b.name||b.sku).slice(0,34)+' (blocked by '+String(b.limiter||'a child').slice(0,26)+')';}).join('; '))+'.');
+
+      var gain=brs.reduce(function(a,b){return a+Math.max(0,b.transferGain);},0);
+      if(gain)add('Inventory','🔄','var(--amber)',
+        'Moving stock between warehouses would unlock <b>'+fmtN(gain)+' more bundles</b> — '+
+        'children are split across sites, and a combo ships from one.');
+
+      var thin=brs.filter(function(b){return b.shippable>0&&b.shippable<=10;});
+      if(thin.length)add('Inventory','⚠','var(--amber)',
+        '<b>'+thin.length+' bundle'+(thin.length>1?'s are':' is')+'</b> down to 10 or fewer '+
+        'buildable sets — '+esc(thin.slice(0,2).map(function(b){
+          return (b.name||b.sku).slice(0,30)+' ('+b.shippable+')';}).join(', '))+'.');
+    }
 
     /* ---- warehouse bifurcation ---- */
     if(s.stockUnits&&(s.aajUnits||s.prepUnits)){
@@ -3396,7 +3452,8 @@ var DRILL_DIMS={
   dest:     {lab:'Destination',   click:'dest', scope:'Banner Clicks', fmt:shortUrl},
   wproduct: {lab:'Widget product', wp:'product', scope:'Funnel Report'},
   invsku:   {lab:'Inventory SKU',  inv:'sku', scope:'Inventory'},
-  warehouse:{lab:'Warehouse',      inv:'wh',  scope:'Inventory'}
+  warehouse:{lab:'Warehouse',      inv:'wh',  scope:'Inventory'},
+  bundle:   {lab:'Bundle',         scope:'Inventory'}   /* applied in drillStockRows */
 };
 
 /** True when the row survives every drill step that applies to its dataset. */
@@ -3449,6 +3506,14 @@ function drillStockRows(rows){
   DRILL.forEach(function(d){
     if(d.dim==='invsku'||d.dim==='sku'){
       out=out.filter(function(r){return String(r.sku)===String(d.value);});
+    }else if(d.dim==='bundle'){
+      /* a bundle is not a stock row, it is a set of them - so drilling one
+         narrows the page to its children plus the bundle SKU itself */
+      var keep={};
+      (DATA.bundles||[]).forEach(function(b){
+        if(String(b.bundleSku)!==String(d.value))return;
+        keep[b.compSku]=1;keep[b.bundleSku]=1;});
+      out=out.filter(function(r){return keep[r.sku];});
     }else if(d.dim==='warehouse'){
       var aaj=/aaj/i.test(d.value);
       out=out.map(function(r){
@@ -3911,6 +3976,88 @@ function soldMap(O){
   });
   return {units:m,placed:placed,unplaced:unplaced,names:names};
 }
+/* ============================ BUNDLES ============================
+ * Some titles are inwarded as child SKUs and sold only as combos. Their own
+ * stock line is therefore misleading twice over: it shows 108 units that cannot
+ * be sold on their own, and it shows zero sales, which reads as dead stock.
+ *
+ * What can actually be shipped is the number of COMPLETE bundles the children
+ * add up to - and that is set by the scarcest child, not by the total. A combo
+ * of six books with 108 of five of them and 2 of the sixth is 2 combos, not
+ * 542. So every figure here is a minimum across components, never a sum.
+ */
+function bundleIndex(){
+  var B=DATA.bundles||[];
+  var byBundle={},childOf={};
+  B.forEach(function(r){
+    var b=byBundle[r.bundleSku]||(byBundle[r.bundleSku]={
+      sku:r.bundleSku,name:r.bundleName,comps:[]});
+    b.comps.push(r);
+    (childOf[r.compSku]=childOf[r.compSku]||[]).push(r.bundleSku);
+  });
+  return {byBundle:byBundle,childOf:childOf,list:Object.keys(byBundle).map(function(k){return byBundle[k];})};
+}
+
+/**
+ * Buildable bundles, per site and pooled.
+ *
+ * Per-site and pooled are both reported because they answer different
+ * questions: a bundle can only be picked and packed from one warehouse, so
+ * AAJ + PrepOnline is what is shippable today, while the pooled figure is what
+ * would be possible after a transfer. Pooled is always >= the sum of the two,
+ * and the gap is exactly what a stock transfer would unlock.
+ */
+function bundleRows(O,span){
+  var ix=bundleIndex();
+  if(!ix.list.length)return [];
+  var stockBySku={};
+  stockNow().forEach(function(r){stockBySku[r.sku]=r;});
+  var sold=soldMap(O).units, joinable=joinableSkus(), days=Math.max(1,span);
+
+  return ix.list.map(function(b){
+    var minAaj=null,minPrep=null,minTot=null,limiter=null,limitN=null;
+    var comps=b.comps.map(function(c){
+      /* the bifurcation sheet is the live source; the mapping tab's own
+         quantities are a fallback for a child it does not list */
+      var live=stockBySku[c.compSku];
+      var per=c.per||1;
+      var aaj=live?(live.aaj||0):(c.aaj||0);
+      var prep=live?(live.prep||0):(c.prep||0);
+      var tot=live?(live.available||0):(c.total||0);
+      var canA=Math.floor(aaj/per),canP=Math.floor(prep/per),canT=Math.floor(tot/per);
+      if(minAaj===null||canA<minAaj)minAaj=canA;
+      if(minPrep===null||canP<minPrep)minPrep=canP;
+      if(minTot===null||canT<minTot){minTot=canT;limiter=c.compName||c.compSku;limitN=tot;}
+      return {sku:c.compSku,name:c.compName,per:per,aaj:aaj,prep:prep,total:tot,
+        canBuild:canT,inLive:!!live};
+    });
+    var bSold=joinable[b.sku]?(sold[b.sku]||0):null;
+    var drr=bSold==null?null:bSold/days;
+    return {sku:b.sku,name:b.name,comps:comps,nComps:comps.length,
+      buildAaj:minAaj||0,buildPrep:minPrep||0,buildPooled:minTot||0,
+      shippable:(minAaj||0)+(minPrep||0),
+      transferGain:(minTot||0)-((minAaj||0)+(minPrep||0)),
+      limiter:limiter,limitUnits:limitN,
+      sold:bSold,
+      drr:drr==null?null:+drr.toFixed(2),
+      doh:(drr!=null&&drr>0)?+((minTot||0)/drr).toFixed(1):null};
+  }).sort(function(a,b){return a.buildPooled-b.buildPooled;});
+}
+
+/** SKU -> the bundles it is a child of, for labelling the ledger. */
+var CHILDOF=null;
+function childOfMap(){
+  if(CHILDOF)return CHILDOF;
+  var ix=bundleIndex(),m={};
+  Object.keys(ix.childOf).forEach(function(sku){
+    m[sku]=ix.childOf[sku].map(function(bs){
+      return (ix.byBundle[bs]||{}).name||bs;});});
+  CHILDOF=m;return m;
+}
+function bundleSkuSet(){
+  var m={};(DATA.bundles||[]).forEach(function(r){m[r.bundleSku]=1;});return m;
+}
+
 /**
  * One row per SKU with sales joined on.
  *
@@ -3924,11 +4071,14 @@ function soldMap(O){
  */
 function stockRows(O,span){
   var sold=soldMap(O).units, joinable=joinableSkus(), days=Math.max(1,span);
+  var child=childOfMap(), isBundle=bundleSkuSet();
   return stockNow().map(function(r){
     var known=!!joinable[r.sku];
     var units=known?(sold[r.sku]||0):null;
     var drr=units==null?null:units/days;
     return Object.assign({},r,{
+      kind:isBundle[r.sku]?'Bundle':(child[r.sku]?'Child':'Standalone'),
+      partOf:child[r.sku]?child[r.sku].join(', '):'',
       sold:units,
       drr:drr==null?null:+drr.toFixed(2),
       doh:(drr!=null&&drr>0)?+(r.available/drr).toFixed(1):null,
@@ -3953,6 +4103,13 @@ function dohFmt(v,r){
 function soldFmt(v){
   if(v==null)return '<span class="tone-mute">—</span>';
   return v>0?String(v):'<span class="tone-mute">0</span>';
+}
+/** A child SKU cannot be sold on its own, so "0 sold" is expected, not a problem. */
+function kindFmt(v,r){
+  if(v==='Child')return '<span class="pill vio" title="Sold only inside: '+esc(r.partOf)+
+    '">child</span>';
+  if(v==='Bundle')return '<span class="pill cyan">bundle</span>';
+  return '<span class="tone-mute">—</span>';
 }
 function availFmt(v){
   return v<=0?'<span class="tone-red">'+v+'</span>'
@@ -4020,6 +4177,85 @@ function tblOOS(O,span){
     : 'none';
 }
 
+function tblBundles(O,span){
+  var rows=bundleRows(O,span);
+  var only=null;
+  DRILL.forEach(function(d){if(d.dim==='bundle')only=d.value;});
+  if(only)rows=rows.filter(function(r){return String(r.sku)===String(only);});
+  var card=el('bundleCard'),comp=el('bundleCompCard');
+  if(!rows.length){card.style.display='none';comp.style.display='none';return;}
+  card.style.display='block';comp.style.display='block';
+
+  renderTable('tblBundles',
+    [{k:'name',label:'Bundle'},
+     {k:'sku',label:'Bundle SKU'},
+     {k:'nComps',label:'Children',r:1},
+     {k:'buildAaj',label:'Buildable · AAJ',r:1},
+     {k:'buildPrep',label:'Buildable · PrepOnline',r:1},
+     {k:'shippable',label:'Shippable Today',r:1,bar:1,
+      fmt:function(v){return v>0?'<span class="tone-green">'+v+'</span>'
+        :'<span class="tone-red">0</span>';}},
+     {k:'buildPooled',label:'If Pooled',r:1,
+      fmt:function(v,r){return r.transferGain>0
+        ?'<span class="tone-amber" title="'+r.transferGain+' more become buildable if stock is transferred between sites">'+v+'</span>':String(v);}},
+     {k:'limiter',label:'Limited By',
+      fmt:function(v,r){return v?'<span title="'+esc(String(v))+'">'+
+        esc(String(v).length>30?String(v).slice(0,29)+'…':v)+'</span> <b class="tone-amber">'+
+        fmtN(r.limitUnits)+'u</b>':'—';},
+      xl:function(v){return v||'';}},
+     {k:'sold',label:'Qty Sold',r:1,fmt:soldFmt,xl:function(v){return v==null?'':v;}},
+     {k:'doh',label:'DOH',r:1,fmt:dohFmt,xl:function(v){return v==null?'':v;},noTotal:1}],
+    rows,'No bundle mapping rows.',
+    {name:'Bundle Inventory',
+     drill:function(r){drillTo('bundle',r.sku,r.name||r.sku);}});
+
+  var zero=rows.filter(function(r){return r.shippable<=0;}).length;
+  var gain=rows.reduce(function(a,r){return a+Math.max(0,r.transferGain);},0);
+  el('bundleTag').textContent=fmtN(rows.length)+' bundles'+
+    (zero?' · '+zero+' cannot be built at all':'');
+
+  /* one row per child, so you can see which single title is holding a combo up */
+  var comps=[];
+  rows.forEach(function(b){
+    b.comps.forEach(function(c){
+      comps.push(Object.assign({},c,{bundle:b.name,bundleSku:b.sku,
+        gates:c.canBuild===b.buildPooled}));});});
+  renderTable('tblBundleComps',
+    [{k:'name',label:'Child Title'},
+     {k:'sku',label:'Child SKU'},
+     {k:'bundle',label:'Part Of'},
+     {k:'aaj',label:'AAJ',r:1},
+     {k:'prep',label:'PrepOnline',r:1},
+     {k:'total',label:'Total',r:1,bar:1},
+     {k:'per',label:'Per Bundle',r:1,noTotal:1},
+     {k:'canBuild',label:'Bundles It Allows',r:1,noTotal:1,
+      fmt:function(v,r){return r.gates
+        ?'<span class="tone-amber" title="this child is the constraint">'+v+' &#9888;</span>':String(v);}}],
+    comps,'No components mapped.',
+    {name:'Bundle Components',totals:1,pageSize:15,pager:'pgBundleComps',
+     drill:function(r){drillTo('invsku',r.sku,r.name||r.sku);}});
+
+  var note=el('bundleNote');
+  var missing=comps.filter(function(c){return !c.inLive;}).length;
+  var combo=O.filter(function(r){return /combo/i.test(r.product||'');});
+  var comboUnits=sum(combo,function(r){return r.qty||0;});
+  var unmatchedCombo=combo.filter(function(r){return !resolveSku(r);});
+  var uUnits=sum(unmatchedCombo,function(r){return r.qty||0;});
+  note.className='matchnote'+((missing||uUnits)?' warn':'');
+  note.innerHTML=
+    '<b>Buildable = the scarcest child, never the total.</b> A combo with hundreds of '+
+    'most of its titles is still capped by the one that ran low. '+
+    '<b>Shippable today</b> = AAJ + PrepOnline, because a combo is picked from one site; '+
+    '<b>if pooled</b> assumes stock can be transferred between them'+
+    (gain>0?' — worth <b>'+fmtN(gain)+' more bundles</b> right now':'')+'.'+
+    (missing?'<br>'+fmtN(missing)+' mapped children are not in the Inventory Bifurcation tab; '+
+      'their quantities fall back to the mapping sheet, which can drift.':'')+
+    (uUnits?'<br><b>'+fmtN(uUnits)+' combo units sold</b> could not be tied to a bundle: the order lines '+
+      '('+esc([...new Set(unmatchedCombo.map(function(r){return r.product;}))].slice(0,4).join(', '))+') '+
+      'carry no bundle SKU. Add those exact names against the bundle SKU on the catalogue sheet '+
+      'and Qty Sold / DOH will fill in.':'');
+}
+
 /**
  * Says out loud how much of the sales data could actually be attached to a SKU.
  * Every DRR and DOH on this page depends on that join, and the join is only
@@ -4052,6 +4288,7 @@ function drawMatchNote(O){
 function tblStockAll(O,span){
   var wh=drillWarehouse();
   var cols=[{k:'sku',label:'SKU'},{k:'product',label:'Title'},
+    {k:'kind',label:'Type',fmt:kindFmt,noTotal:1},
     {k:'sold',label:'Qty Sold',r:1,fmt:soldFmt,
      xl:function(v){return v==null?'':v;}}];
   if(!wh){
