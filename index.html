@@ -2874,10 +2874,6 @@ function drawInsights(s){
     if(s.cancVal>0)add('Operations','\u{1F4B8}','var(--red)',
       '<b>'+fmtK(s.cancVal)+'</b> of order value was cancelled'+
       (s.rev?' — equal to '+(s.cancVal/s.rev*100).toFixed(0)+'% of revenue booked.':'.'));
-    var bm={};Cc.forEach(function(r){bm[r.by]=(bm[r.by]||0)+1;});
-    var bb=null,bbv=-1;Object.keys(bm).forEach(function(k){if(bm[k]>bbv){bbv=bm[k];bb=k;}});
-    if(bb)add('Operations','\u{1F464}','var(--amber)','<b>'+(bbv/Cc.length*100).toFixed(0)+
-      '%</b> of cancellations were raised by <b>'+esc(bb)+'</b>.');
   }else{
     add('Operations','✅','var(--green)','<b>No cancellations</b> recorded in this window.');
   }
