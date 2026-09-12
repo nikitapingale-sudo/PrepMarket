@@ -239,17 +239,33 @@
     border:1px solid var(--line2);background:rgba(120,140,190,.08);color:var(--mute)}
   .matchnote b{color:var(--txt)}
   .matchnote.warn{border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.09)}
-  .ostep{padding:9px 2px 11px;border-bottom:1px solid var(--line);cursor:zoom-in}
-  .ostep:last-child{border-bottom:none}
-  .ostep:hover{background:rgba(34,211,238,.06)}
-  .ohead{display:flex;align-items:baseline;gap:9px}
-  .olab{font-size:12.5px;font-weight:700;letter-spacing:.02em}
+  .ofunnelwrap{overflow-x:auto;margin:2px 0 6px}
+  .ofunnel{display:block;width:100%;min-width:620px;height:auto}
+  .oseg{cursor:zoom-in}
+  .oseg path{transition:opacity .18s}
+  .oseg:hover path{opacity:.82}
+  .oseg:focus{outline:none}
+  .oseg:focus path{stroke:var(--cyan);stroke-width:2.5}
+  .ofunnel .opc{font:700 20px/1 'Space Grotesk','Inter',sans-serif}
+  .ofunnel .olb{font:600 12.5px/1 var(--f)}
+  .ofunnel .ocap{font:700 16px/1 'Space Grotesk','Inter',sans-serif;fill:var(--amber)}
+  .osteps{margin-top:10px;border-top:1px solid var(--line)}
+  .orow{display:flex;align-items:center;gap:9px;padding:7px 2px;
+    border-bottom:1px solid var(--line);cursor:zoom-in;font-size:12px}
+  .orow:last-child{border-bottom:none}
+  .orow:hover{background:rgba(34,211,238,.06)}
+  .orow i{width:10px;height:10px;border-radius:3px;flex:none}
+  .orow b{font-weight:700;min-width:112px}
   .onote{font-size:11px;color:var(--mute)}
-  .oval{font-family:'Space Grotesk','Inter',sans-serif;font-size:19px;font-weight:700}
-  .opct{font-size:11.5px;color:var(--mute);min-width:48px;text-align:right}
-  .otrack{margin-top:6px;height:9px;border-radius:99px;background:rgba(120,140,190,.13);overflow:hidden}
-  .otrack i{display:block;height:100%;border-radius:99px;transition:width .5s cubic-bezier(.2,.8,.2,1)}
-  .ofoot{margin-top:5px;font-size:11px;color:var(--mute)}
+  .orev{font-size:11.5px;color:var(--mute);min-width:64px;text-align:right}
+  .odrop{font-size:11px;color:var(--mute);min-width:172px;text-align:right}
+  .oval{font-family:'Space Grotesk','Inter',sans-serif;font-size:16px;font-weight:700;
+    min-width:52px;text-align:right}
+  @media(max-width:760px){
+    .orow b{min-width:0}
+    .orow .onote,.orow .orev{display:none}
+    .odrop{min-width:0}
+  }
   .oleaks{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-top:14px}
   .oleak{padding:11px 13px;border-radius:11px;border:1px solid var(--line2);
     border-left:3px solid var(--lc);background:rgba(120,140,190,.06)}
@@ -1857,25 +1873,82 @@ function drawOrderFunnel(O){
   var f=orderFunnel(O),tot=f.total;
   if(!tot){el('ordFunnel').innerHTML='<div class="empty">No orders in this range.</div>';
     el('ordLeaks').innerHTML='';return;}
-  var COLORS=[cssVar('--cyan'),cssVar('--blue'),cssVar('--violet'),
-              cssVar('--pink'),cssVar('--amber'),cssVar('--green')];
-  var h='';
+  /* Band heights are proportional to the counts, so the taper is the real
+     shape of the pipeline. Each stage keeps its own column, and the label sits
+     on the column's centre line - that way a thin stage like Delivered is still
+     readable instead of having its text squeezed out. */
+  var W=1000,H=400,PAD=26,CY=H/2;
+  var n=f.steps.length, colW=(W-90)/n;
+  var maxV=Math.max(1,f.steps[0].rows.length);
+  var hOf=function(v){return Math.max(10,(H-PAD*2)*(v/maxV));};
+
+  /* dark -> light, the way the shape itself reads: mass at the front */
+  var FILL=['#2F3A4C','#12496A','#2E8FC0','#74BDE2','#BBDDF2','#DDE7F0'];
+  var TEXT=['#FFFFFF','#FFFFFF','#FFFFFF','#0B2233','#0B2233','#0B2233'];
+
+  var svg='<svg viewBox="0 0 '+W+' '+H+'" class="ofunnel" role="img" '+
+    'aria-label="Order fulfilment funnel" preserveAspectRatio="xMidYMid meet">';
+  var outline='';
   f.steps.forEach(function(st,i){
-    var n=st.rows.length,prev=i?f.steps[i-1].rows.length:n;
-    var pct=tot?n/tot*100:0, drop=prev-n;
-    var rev=st.rows.reduce(function(a,o){return a+o.rev;},0);
-    h+='<div class="ostep" data-step="'+i+'" title="Click to drill the dashboard into '+esc(st.label)+'">'+
-       '<div class="ohead"><span class="olab">'+esc(st.label)+'</span>'+
-       '<span class="onote">'+esc(st.note)+'</span><span class="spacer"></span>'+
-       '<span class="oval num">'+fmtN(n)+'</span>'+
-       '<span class="opct">'+pct.toFixed(1)+'%</span></div>'+
-       '<div class="otrack"><i style="width:'+Math.max(1.2,pct).toFixed(2)+'%;background:'+COLORS[i]+'"></i></div>'+
-       '<div class="ofoot">'+fmtK(rev)+
-       (i?(drop>0?' · <b class="tone-red">&#8595; '+fmtN(drop)+'</b> lost from '+esc(f.steps[i-1].label)+
-            ' ('+(prev?(n/prev*100).toFixed(1):'0')+'% carried through)'
-          :' · <b class="tone-green">no drop</b>'):'')+
-       '</div></div>';
+    var v=st.rows.length, nv=(i<n-1)?f.steps[i+1].rows.length:v;
+    var x0=PAD+i*colW, x1=x0+colW;
+    var h0=hOf(v)/2, h1=hOf(nv)/2;
+    var cx=(x0+x1)/2;
+    /* the S-curve between stages is what gives the classic funnel silhouette;
+       a straight edge reads as a bar chart lying on its side */
+    var top='M '+x0+' '+(CY-h0)+' C '+cx+' '+(CY-h0)+' '+cx+' '+(CY-h1)+' '+x1+' '+(CY-h1);
+    var bot='L '+x1+' '+(CY+h1)+' C '+cx+' '+(CY+h1)+' '+cx+' '+(CY+h0)+' '+x0+' '+(CY+h0)+' Z';
+    var pct=maxV?v/maxV*100:0;
+    var label=esc(st.label), cnt=fmtN(v);
+    svg+='<g class="oseg" data-step="'+i+'" tabindex="0" role="button" '+
+      'aria-label="'+label+': '+cnt+' orders">'+
+      '<title>'+label+' — '+cnt+' orders ('+pct.toFixed(1)+'%) · '+esc(st.note)+'</title>'+
+      '<path d="'+top+' '+bot+'" fill="'+FILL[i%FILL.length]+'"/>'+
+      '<text x="'+cx+'" y="'+(CY-8)+'" text-anchor="middle" class="opc" '+
+        'fill="'+TEXT[i%TEXT.length]+'">'+pct.toFixed(0)+'%</text>'+
+      '<text x="'+cx+'" y="'+(CY+14)+'" text-anchor="middle" class="olb" '+
+        'fill="'+TEXT[i%TEXT.length]+'">'+label+' '+cnt+'</text>'+
+      '</g>';
+    outline+=(i===0?'M '+x0+' '+(CY-h0)+' ':'')+
+      'C '+cx+' '+(CY-h0)+' '+cx+' '+(CY-h1)+' '+x1+' '+(CY-h1)+' ';
   });
+  /* one continuous stroke over the top and bottom edges, drawn last so the
+     seams between segments do not show through it */
+  var back='';
+  for(var i=n-1;i>=0;i--){
+    var v=f.steps[i].rows.length, nv=(i<n-1)?f.steps[i+1].rows.length:v;
+    var x0=PAD+i*colW, x1=x0+colW, cx=(x0+x1)/2;
+    var h0=hOf(v)/2, h1=hOf(nv)/2;
+    back+=(i===n-1?'L '+x1+' '+(CY+h1)+' ':'')+
+      'C '+cx+' '+(CY+h1)+' '+cx+' '+(CY+h0)+' '+x0+' '+(CY+h0)+' ';
+  }
+  svg+='<path d="'+outline+back+'Z" fill="none" stroke="var(--txt)" stroke-width="2.2" '+
+    'stroke-linejoin="round" opacity=".55"/>';
+
+  /* the end cap: the number that actually matters, pulled out of the taper */
+  var last=f.steps[n-1].rows.length;
+  var ex=PAD+n*colW+34;
+  svg+='<circle cx="'+ex+'" cy="'+CY+'" r="26" fill="none" stroke="'+cssVar('--amber')+'" stroke-width="2.4"/>'+
+    '<text x="'+ex+'" y="'+(CY+5)+'" text-anchor="middle" class="ocap">'+fmtN(last)+'</text>';
+  svg+='</svg>';
+
+  var h='<div class="ofunnelwrap">'+svg+'</div><div class="osteps">';
+  f.steps.forEach(function(st,i){
+    var v=st.rows.length,prev=i?f.steps[i-1].rows.length:v,drop=prev-v;
+    var rev=st.rows.reduce(function(a,o){return a+o.rev;},0);
+    h+='<div class="orow" data-step="'+i+'">'+
+      '<i style="background:'+FILL[i%FILL.length]+'"></i>'+
+      '<b>'+esc(st.label)+'</b>'+
+      '<span class="onote">'+esc(st.note)+'</span>'+
+      '<span class="spacer"></span>'+
+      '<span class="orev">'+fmtK(rev)+'</span>'+
+      '<span class="odrop">'+(i?(drop>0
+        ? '<span class="tone-red">&#8595; '+fmtN(drop)+'</span> lost · '+
+          (prev?(v/prev*100).toFixed(1):'0')+'% through'
+        : '<span class="tone-green">no drop</span>'):'&nbsp;')+'</span>'+
+      '<span class="oval num">'+fmtN(v)+'</span></div>';
+  });
+  h+='</div>';
   el('ordFunnel').innerHTML=h;
 
   /* registered so the Excel button has something to write; the table itself
@@ -1927,14 +2000,20 @@ function drawOrderFunnel(O){
         : '');
   }
 
-  el('ordFunnel').querySelectorAll('.ostep').forEach(function(d){
-    d.onclick=function(){
-      var st=f.steps[+d.dataset.step];
-      var refs={};st.rows.forEach(function(o){refs[o.ref]=1;});
-      drillTo('fstep',st.key,st.label);
-      FSTEP_REFS=refs;
-      render();drawDrillBar();
-    };});
+  function pickStep(i){
+    var st=f.steps[i];
+    var refs={};st.rows.forEach(function(o){refs[o.ref]=1;});
+    drillTo('fstep',st.key,st.label);
+    FSTEP_REFS=refs;
+    render();drawDrillBar();
+  }
+  el('ordFunnel').querySelectorAll('.oseg,.orow').forEach(function(d){
+    var i=+d.dataset.step;
+    d.onclick=function(){pickStep(i);};
+    /* the SVG segments are focusable, so make them work from the keyboard too */
+    d.onkeydown=function(e){
+      if(e.key==='Enter'||e.key===' '){e.preventDefault();pickStep(i);}};
+  });
 
   var lh='';
   f.leaks.forEach(function(l){
