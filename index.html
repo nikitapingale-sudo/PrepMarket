@@ -239,6 +239,26 @@
     border:1px solid var(--line2);background:rgba(120,140,190,.08);color:var(--mute)}
   .matchnote b{color:var(--txt)}
   .matchnote.warn{border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.09)}
+  .ostep{padding:9px 2px 11px;border-bottom:1px solid var(--line);cursor:zoom-in}
+  .ostep:last-child{border-bottom:none}
+  .ostep:hover{background:rgba(34,211,238,.06)}
+  .ohead{display:flex;align-items:baseline;gap:9px}
+  .olab{font-size:12.5px;font-weight:700;letter-spacing:.02em}
+  .onote{font-size:11px;color:var(--mute)}
+  .oval{font-family:'Space Grotesk','Inter',sans-serif;font-size:19px;font-weight:700}
+  .opct{font-size:11.5px;color:var(--mute);min-width:48px;text-align:right}
+  .otrack{margin-top:6px;height:9px;border-radius:99px;background:rgba(120,140,190,.13);overflow:hidden}
+  .otrack i{display:block;height:100%;border-radius:99px;transition:width .5s cubic-bezier(.2,.8,.2,1)}
+  .ofoot{margin-top:5px;font-size:11px;color:var(--mute)}
+  .oleaks{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-top:14px}
+  .oleak{padding:11px 13px;border-radius:11px;border:1px solid var(--line2);
+    border-left:3px solid var(--lc);background:rgba(120,140,190,.06)}
+  .oleak .ll{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--lc);font-weight:800}
+  .oleak .lv{font-family:'Space Grotesk','Inter',sans-serif;font-size:21px;font-weight:700;margin-top:2px}
+  .oleak .ls{font-size:11px;color:var(--mute)}
+  .oleak.clickable{cursor:zoom-in}
+  .oleak.clickable:hover{border-color:var(--lc);background:rgba(120,140,190,.12)}
+  @media(max-width:760px){.oleaks{grid-template-columns:1fr}}
   .overflow{overflow-x:auto}
   footer{padding:0 20px 30px;color:var(--mute);font-size:11.5px;text-align:center}
 
@@ -513,6 +533,15 @@
   <!-- ================= OVERVIEW ================= -->
   <section class="pane on" id="pane-overview">
     <div class="kpis" id="kpis"></div>
+
+    <div class="card">
+      <h2>Order fulfilment funnel <span class="tag">unique orders &middot; click a step to drill</span>
+        <span class="spacer"></span><button class="xls" data-xls="tblOrdFunnel">&#8681; EXCEL</button></h2>
+      <div id="ordFunnel"></div>
+      <div class="oleaks" id="ordLeaks"></div>
+      <div class="matchnote" id="ordFunnelNote"></div>
+      <div class="overflow" id="tblOrdFunnel" style="display:none"></div>
+    </div>
 
     <div class="card">
       <h2>Auto insights <span class="tag">generated from the current filter</span></h2>
@@ -1419,14 +1448,28 @@ function inSel(key,v){
   var s=F[key];
   return !s||!s.length||s.indexOf(v)>=0;
 }
-function passDims(r){
+function passDims(r,skipStage){
   return inSel('wh',r.warehouse)&&
          inSel('ship',r.shipStatus)&&
          inSel('pay',r.pay)&&
          inSel('state',r.state)&&
          inSel('cat',r.category)&&
-         inSel('stage',r.stage)&&
+         (skipStage||fstepActive()||inSel('stage',r.stage))&&
          matchQ(r)&&drillPass(r,'order');
+}
+
+/**
+ * Orders for the fulfilment funnel: every dimension filter applies EXCEPT
+ * status.
+ *
+ * The Status filter excludes cancelled and returned orders by default, which is
+ * right for revenue but fatal for a funnel - "Orders Received" would silently
+ * mean "orders received that were not cancelled", and the Cancelled step would
+ * read zero no matter how many there were. A funnel has to start from
+ * everything that came in.
+ */
+function ordersAllStatus(from,to){
+  return DATA.orders.filter(function(r){return r.day>=from&&r.day<=to&&passDims(r,true);});
 }
 function ordersIn(from,to){
   return DATA.orders.filter(function(r){return r.day>=from&&r.day<=to&&passDims(r);});
@@ -1724,11 +1767,194 @@ function render(){
   renderConversion();
   paintFunnelInsights();
 
+  drawOrderFunnel(ordersAllStatus(F.from,F.to));
   tblTop5(O);
   tblSku(O);tblState(O);tblCity(O);tblChannel(O,Cc);tblCat(O);
   tblCanc(Cc);tblAging(agingRows);
   tblBundles(O,span);tblOOS(O,span);tblStock(O,span);tblStockAll(O,span);drawMatchNote(O);
   tblExplorer(O);tblDaily(days,byDay);
+}
+
+/* ============================ ORDER FUNNEL ============================
+ * Where orders actually get to, counted in UNIQUE ORDERS.
+ *
+ * The one thing that makes this a funnel rather than a status pie: every step
+ * is CUMULATIVE - "reached at least this far" - so a delivered order is also
+ * counted as packed and dispatched. Counting orders whose status is currently
+ * "Packed" would not be a funnel at all; it would be a snapshot that drops to
+ * near zero at the end simply because orders move on, and it could rise and
+ * fall between steps, which a funnel must never do.
+ *
+ * Each set is unioned with the ones after it, so the counts can only decline.
+ * Cancelled / RTO / Returned are not steps - they are ways out - so they are
+ * reported beside the funnel rather than inside it.
+ */
+function orderFunnel(O){
+  var DEAD=/cancel/i, RTO=/rto|delivered to origin/i, RET=/^return/i;
+  var COURIER=/out for pickup|in transit|out for delivery|delivered|shipment created|rto|shipped|return/i;
+  var MOVING=/in transit|out for delivery|^delivered$|delivered to origin|rto/i;
+
+  /* one entry per order; an order's furthest-along line decides its fate */
+  var ord={};
+  O.forEach(function(r){
+    var o=ord[r.ref]||(ord[r.ref]={ref:r.ref,rev:0,stages:[],packed:false});
+    o.rev+=r.price||0;
+    o.stages.push(r.stage||'');
+    if(r.packed)o.packed=true;
+  });
+  var list=Object.keys(ord).map(function(k){return ord[k];});
+  var any=function(o,re){return o.stages.some(function(s){return re.test(s);});};
+
+  var cancelled=list.filter(function(o){return any(o,DEAD);});
+  var rto=list.filter(function(o){return any(o,RTO);});
+  var returned=list.filter(function(o){return any(o,RET)&&!any(o,RTO);});
+  var delivered=list.filter(function(o){return o.stages.some(function(s){return /^delivered$/i.test(s);});});
+  var moving=list.filter(function(o){return any(o,MOVING);});
+  var dispatched=list.filter(function(o){return any(o,COURIER);});
+  var packed=list.filter(function(o){return o.packed;});
+  var confirmed=list.filter(function(o){return !any(o,DEAD);});
+
+  /* make every level a superset of the one below it, so the funnel is monotonic
+     even when a source row is inconsistent */
+  var U=function(){var m={};[].slice.call(arguments).forEach(function(a){
+    a.forEach(function(o){m[o.ref]=o;});});
+    return Object.keys(m).map(function(k){return m[k];});};
+  moving=U(moving,delivered);
+  dispatched=U(dispatched,moving);
+  packed=U(packed,dispatched);
+  confirmed=U(confirmed,packed);
+
+  return {
+    steps:[
+      {key:'received', label:'Orders Received', rows:list,
+       note:'every unique order in range'},
+      {key:'confirmed',label:'Confirmed',      rows:confirmed,
+       note:'not cancelled'},
+      {key:'packed',   label:'Packed',         rows:packed,
+       note:'manifested and ready to hand over'},
+      {key:'dispatched',label:'Shipped',       rows:dispatched,
+       note:'with the courier'},
+      {key:'moving',   label:'In Transit',     rows:moving,
+       note:'scanned and moving'},
+      {key:'delivered',label:'Delivered',      rows:delivered,
+       note:'reached the customer'}
+    ],
+    leaks:[
+      {label:'Cancelled',rows:cancelled,c:'var(--red)'},
+      {label:'RTO',      rows:rto,      c:'var(--amber)'},
+      {label:'Returned', rows:returned, c:'var(--pink)'}
+    ],
+    total:list.length
+  };
+}
+
+/**
+ * Vertical rather than the horizontal strip used for the ingress funnel: six
+ * steps across a row leaves each too narrow to read, and this shape survives a
+ * phone screen without turning into a scroll.
+ */
+function drawOrderFunnel(O){
+  var f=orderFunnel(O),tot=f.total;
+  if(!tot){el('ordFunnel').innerHTML='<div class="empty">No orders in this range.</div>';
+    el('ordLeaks').innerHTML='';return;}
+  var COLORS=[cssVar('--cyan'),cssVar('--blue'),cssVar('--violet'),
+              cssVar('--pink'),cssVar('--amber'),cssVar('--green')];
+  var h='';
+  f.steps.forEach(function(st,i){
+    var n=st.rows.length,prev=i?f.steps[i-1].rows.length:n;
+    var pct=tot?n/tot*100:0, drop=prev-n;
+    var rev=st.rows.reduce(function(a,o){return a+o.rev;},0);
+    h+='<div class="ostep" data-step="'+i+'" title="Click to drill the dashboard into '+esc(st.label)+'">'+
+       '<div class="ohead"><span class="olab">'+esc(st.label)+'</span>'+
+       '<span class="onote">'+esc(st.note)+'</span><span class="spacer"></span>'+
+       '<span class="oval num">'+fmtN(n)+'</span>'+
+       '<span class="opct">'+pct.toFixed(1)+'%</span></div>'+
+       '<div class="otrack"><i style="width:'+Math.max(1.2,pct).toFixed(2)+'%;background:'+COLORS[i]+'"></i></div>'+
+       '<div class="ofoot">'+fmtK(rev)+
+       (i?(drop>0?' · <b class="tone-red">&#8595; '+fmtN(drop)+'</b> lost from '+esc(f.steps[i-1].label)+
+            ' ('+(prev?(n/prev*100).toFixed(1):'0')+'% carried through)'
+          :' · <b class="tone-green">no drop</b>'):'')+
+       '</div></div>';
+  });
+  el('ordFunnel').innerHTML=h;
+
+  /* registered so the Excel button has something to write; the table itself
+     stays hidden because the bars above already say it better on screen */
+  renderTable('tblOrdFunnel',
+    [{k:'label',label:'Stage'},
+     {k:'orders',label:'Unique Orders',r:1,noTotal:1},
+     {k:'pct',label:'% of Received',r:1,fmt:function(v){return v.toFixed(1)+'%';},
+      xl:function(v){return +v.toFixed(2);},noTotal:1},
+     {k:'drop',label:'Lost vs Previous',r:1,noTotal:1},
+     {k:'through',label:'Carried Through',r:1,
+      fmt:function(v){return v==null?'—':v.toFixed(1)+'%';},
+      xl:function(v){return v==null?'':+v.toFixed(2);},noTotal:1},
+     {k:'rev',label:'Order Value',r:1,fmt:function(v){return fmtINR(v);},
+      xl:function(v){return Math.round(v);},noTotal:1},
+     {k:'note',label:'Definition'}],
+    f.steps.map(function(st,i){
+      var n=st.rows.length,prev=i?f.steps[i-1].rows.length:n;
+      return {label:st.label,orders:n,pct:tot?n/tot*100:0,
+        drop:i?prev-n:0,through:i?(prev?n/prev*100:0):null,
+        rev:st.rows.reduce(function(a,o){return a+o.rev;},0),note:st.note};})
+      .concat(f.leaks.map(function(l){
+        return {label:'Leak · '+l.label,orders:l.rows.length,
+          pct:tot?l.rows.length/tot*100:0,drop:0,through:null,
+          rev:l.rows.reduce(function(a,o){return a+o.rev;},0),
+          note:'terminal outcome, not a funnel step'};})),
+    'No orders in this range.',{name:'Order Fulfilment Funnel'});
+
+  var note=el('ordFunnelNote');
+  if(note){
+    var del=f.steps[5].rows.length, disp=f.steps[3].rows.length;
+    note.className='matchnote';
+    note.innerHTML=
+      '<b>Each step is cumulative</b> — "reached at least this far" — so a delivered order '+
+      'is also counted as packed and shipped. That is what makes it a funnel rather than a '+
+      'status breakdown, and why the numbers can only fall.<br>'+
+      '<b>Packed</b> means the order carries a <i>Manifested At</i> stamp. '+
+      '(<i>Manifest ID</i> is filled on every order including cancelled ones, so it says nothing '+
+      'about progress and is not used.) '+
+      '<b>Cancelled, RTO and Returned are shown separately</b> because they are ways out of the '+
+      'funnel, not stages within it — adding them as steps would double-count orders.<br>'+
+      '<b>This card ignores the Status filter</b> (every other filter still applies). That filter '+
+      'hides cancelled and returned orders by default, which would make "Orders Received" mean '+
+      '"received and not cancelled" and pin Cancelled at zero. So the count here can exceed the '+
+      'Orders KPI above.'+
+      (disp&&del<disp
+        ? '<br><b>'+fmtN(disp-del)+' shipped orders have not been marked delivered yet</b> — '+
+          'part genuinely in flight, part simply not scanned back.'
+        : '');
+  }
+
+  el('ordFunnel').querySelectorAll('.ostep').forEach(function(d){
+    d.onclick=function(){
+      var st=f.steps[+d.dataset.step];
+      var refs={};st.rows.forEach(function(o){refs[o.ref]=1;});
+      drillTo('fstep',st.key,st.label);
+      FSTEP_REFS=refs;
+      render();drawDrillBar();
+    };});
+
+  var lh='';
+  f.leaks.forEach(function(l){
+    var n=l.rows.length,rev=l.rows.reduce(function(a,o){return a+o.rev;},0);
+    lh+='<div class="oleak" data-leak="'+esc(l.label)+'" title="Click to drill into '+esc(l.label)+'" style="--lc:'+l.c+'">'+
+      '<div class="ll">'+esc(l.label)+'</div>'+
+      '<div class="lv num">'+fmtN(n)+'</div>'+
+      '<div class="ls">'+(tot?(n/tot*100).toFixed(1):'0')+'% of orders · '+fmtK(rev)+'</div></div>';
+  });
+  el('ordLeaks').innerHTML=lh;
+  el('ordLeaks').querySelectorAll('.oleak').forEach(function(d){
+    var l=f.leaks.filter(function(x){return x.label===d.dataset.leak;})[0];
+    if(!l||!l.rows.length)return;
+    d.classList.add('clickable');
+    d.onclick=function(){
+      var refs={};l.rows.forEach(function(o){refs[o.ref]=1;});
+      drillTo('fstep','leak:'+l.label,l.label);
+      FSTEP_REFS=refs;
+      render();drawDrillBar();
+    };});
 }
 
 function topShare(O,f){
@@ -3457,6 +3683,13 @@ function renderTable(elmId,cols,data,emptyMsg,opts){
  * what was on screen before.
  */
 var DRILL=[];
+/* A funnel step is a set of orders, not a field, so the membership computed
+   when the step was clicked is what the filter tests against. */
+var FSTEP_REFS=null;
+function fstepActive(){
+  for(var i=0;i<DRILL.length;i++)if(DRILL[i].dim==='fstep')return true;
+  return false;
+}
 
 /* Each dimension names the field it reads on every dataset it applies to.
    A dataset with no entry simply is not narrowed by that dimension - a click
@@ -3479,13 +3712,20 @@ var DRILL_DIMS={
   wproduct: {lab:'Widget product', wp:'product', scope:'Funnel Report'},
   invsku:   {lab:'Inventory SKU',  inv:'sku', scope:'Inventory'},
   warehouse:{lab:'Warehouse',      inv:'wh', order:'warehouse', age:'warehouse', canc:'warehouse'},
-  bundle:   {lab:'Bundle',         scope:'Inventory'}   /* applied in drillStockRows */
+  bundle:   {lab:'Bundle',         scope:'Inventory'},  /* applied in drillStockRows */
+  fstep:    {lab:'Funnel step',    scope:'Orders'}      /* applied via FSTEP_REFS */
 };
 
 /** True when the row survives every drill step that applies to its dataset. */
 function drillPass(r,src){
   for(var i=0;i<DRILL.length;i++){
     var d=DRILL[i],def=DRILL_DIMS[d.dim],f=def&&def[src];
+    if(d.dim==='fstep'){
+      if(src!=='order'&&src!=='canc'&&src!=='age')continue;
+      var ref=src==='order'?r.ref:r.order;
+      if(FSTEP_REFS&&!FSTEP_REFS[ref])return false;
+      continue;
+    }
     if(!f)continue;
     if(String(r[f]==null?'':r[f])!==String(d.value))return false;
   }
@@ -3593,8 +3833,11 @@ function chartDrill(dim,labels,labelF){
       evt.native.target.style.cursor=items.length?'zoom-in':'default';}
   };
 }
-function drillPop(i){DRILL.splice(i,DRILL.length-i);afterDrill();}
-function drillClear(){if(!DRILL.length)return;DRILL=[];afterDrill();}
+function drillPop(i){
+  DRILL.splice(i,DRILL.length-i);
+  if(!DRILL.some(function(d){return d.dim==='fstep';}))FSTEP_REFS=null;
+  afterDrill();}
+function drillClear(){if(!DRILL.length)return;DRILL=[];FSTEP_REFS=null;afterDrill();}
 function afterDrill(){
   resetPages();
   render();

@@ -323,6 +323,17 @@ function normalizeOrders(raw) {
       shipped: toDayStr(
         pick(o, ["Handover At", "Manifested At", "Shipped At", "Dispatch Date", "shipped_at"])
       ),
+      /**
+       * Fulfilment milestones, for the order funnel.
+       *
+       * "Manifest ID" looks like the obvious packed marker and is not: it is
+       * populated on all 211 orders, including Pending and Cancelled ones, so
+       * it says nothing about progress. "Manifested At" is only stamped when
+       * the parcel is actually manifested, which is the real packed moment.
+       * Handover At exists in the export but is empty on every row.
+       */
+      packed: toDayStr(pick(o, ["Manifested At"])),
+      invoiced: toDayStr(pick(o, ["Invoice Date"])),
       courier: strip(pick(o, ["Courier", "Carrier", "Shipping Partner"])),
     });
   }
