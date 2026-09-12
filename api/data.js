@@ -57,6 +57,8 @@ const TABS = {
   inventory: ["Inventory Bifurcation ", "Inventory Bifurcation"],
   // trailing space is the real tab name here too - see fetchTabAny
   bundles: ["Bundle Child Mapping ", "Bundle Child Mapping"],
+  // Shopify export + operational columns for orders PrepOnline fulfils itself
+  pmOrders: ["Prepmarket Order Data"],
 };
 
 /* ---------- gviz fetch: returns [{header: value, ...}, ...] ---------- */
@@ -697,6 +699,128 @@ async function loadSkuCatalogue() {
   }
 }
 
+/* ---------- PrepOnline-fulfilled orders ----------
+ *
+ * Orders_Raw is the EasyEcom view, which only knows what the AAJ pipeline told
+ * it. Orders that PrepOnline ships itself are tracked in a separate Shopify
+ * export, and for those the EasyEcom status stops updating once the parcel
+ * leaves - so "Shipped" sits there forever while the courier has long since
+ * delivered it. Where this tab has a fact, it wins.
+ */
+
+/** Courier-status spellings vary by row ("In_transit", "in_transit"). */
+function normTrack(v) {
+  const raw = strip(v);
+  if (!raw) return "";
+  const t = raw.toLowerCase().replace(/[^a-z]+/g, "");
+  if (t === "intransit") return "In Transit";
+  if (t === "delivered") return "Delivered";
+  if (t.startsWith("rto")) return "RTO";
+  if (t === "canceled" || t === "cancelled") return "Cancelled";
+  if (t === "outfordelivery") return "Out For Delivery";
+  if (t === "outforpickup") return "Out For Pickup";
+  if (t === "shipmentcreated") return "Shipment Created";
+  return raw;   // an unrecognised status is still a fact; do not swallow it
+}
+
+function normWarehouse(v) {
+  const raw = strip(v);
+  if (!raw) return "";
+  if (/aaj/i.test(raw)) return "AAJ Warehouse";
+  if (/preps*online/i.test(raw)) return "PrepOnline Warehouse";
+  return raw;
+}
+
+/**
+ * One entry per ORDER, not per line.
+ *
+ * The export repeats the order header on every line item but fills the
+ * operational columns only on the first, so a per-line read finds Warehouse
+ * blank on two thirds of rows. First non-blank across the order's lines is the
+ * order's value.
+ */
+function normalizePmOrders(raw) {
+  const byRef = {};
+  if (!Array.isArray(raw)) return byRef;
+  for (const o of raw) {
+    const ref = strip(pick(o, ["Name", "Order Name", "Order No.", "Reference Code"]));
+    if (!ref) continue;
+    const e = byRef[ref] || (byRef[ref] = { ref, lines: 0 });
+    e.lines++;
+    const set = (k, v) => { if (!e[k] && v) e[k] = v; };
+    set("warehouse", normWarehouse(pick(o, ["Warehouse"])));
+    set("track", normTrack(pick(o, ["Tracking Status"])));
+    set("courier", strip(pick(o, ["Logistics Partner"])));
+    set("shipped", toDayStr(pick(o, ["Date Of Dispatch"])));
+    set("delivered", toDayStr(pick(o, ["Delivery Date"])));
+    set("edd", toDayStr(pick(o, ["EDD"])));
+    set("awb", strip(pick(o, ["Tracking ID AWB/LR No.", "Tracking ID", "AWB/LR No."])));
+  }
+  return byRef;
+}
+
+/**
+ * Stamps every order with its fulfilling warehouse and lets the PrepOnline
+ * sheet override the shipping facts.
+ *
+ * Presence in that tab is what defines a PrepOnline order - the user's rule -
+ * so the Warehouse column is only consulted for its value, never for whether
+ * the order counts. A blank there still means PrepOnline.
+ *
+ * Only non-blank values override. The tab is partially filled (24 of 78 orders
+ * carry a tracking status today), and blanking out a known EasyEcom status
+ * because a newer sheet has not been updated yet would lose information rather
+ * than add it.
+ */
+/* Cancellations are keyed by order too, so the warehouse filter can reach them
+   the same way. Without this the cancellation count stayed identical under
+   both warehouses, which made the filter look broken. */
+function applyPmCanc(cancellations, pm) {
+  for (const c of cancellations) {
+    const p = pm[c.order];
+    c.warehouse = p ? (p.warehouse || "PrepOnline Warehouse") : "AAJ Warehouse";
+  }
+  return cancellations;
+}
+
+function applyPmAging(aging, pm, orders) {
+  const stageByRef = {};
+  for (const o of orders) if (!stageByRef[o.ref]) stageByRef[o.ref] = o.stage;
+  for (const a of aging) {
+    const p = pm[a.order];
+    a.warehouse = p ? (p.warehouse || "PrepOnline Warehouse") : "AAJ Warehouse";
+    if (!p) continue;
+    a.statusRaw = a.status;
+    // the backlog must reflect where the parcel actually is, not where
+    // EasyEcom last saw it - otherwise a delivered order sits in pendency
+    if (p.track) a.status = p.track;
+    if (p.courier) a.ship = p.courier;
+    const live = stageByRef[a.order];
+    if (live) a.stage = live;
+  }
+  return aging;
+}
+
+function applyPmOverrides(orders, pm) {
+  let touched = 0, restaged = 0;
+  for (const o of orders) {
+    const p = pm[o.ref];
+    if (!p) { o.warehouse = "AAJ Warehouse"; continue; }
+    touched++;
+    o.warehouse = p.warehouse || "PrepOnline Warehouse";
+    o.stageRaw = o.stage;           // kept so the override is inspectable
+    // count real changes, not applications: one line's tab status already
+    // matched EasyEcom, and reporting it as "restaged" overstates the effect
+    if (p.track) { if (p.track !== o.stage) restaged++; o.stage = p.track; }
+    if (p.courier) o.courier = p.courier;
+    if (p.shipped) o.shipped = p.shipped;
+    if (p.delivered) o.delivered = p.delivered;
+    if (p.edd) o.edd = p.edd;
+    if (p.awb) o.awb = p.awb;
+  }
+  return { touched, restaged };
+}
+
 /**
  * Bundle -> component rows.
  *
@@ -751,7 +875,7 @@ export async function buildPayload() {
    */
   const {
     ordersRaw, cancRaw, agingRaw, returnsRaw,
-    clicksResult, funnel, widgetProducts, convRaw, invResult, skuNames, bundleRaw,
+    clicksResult, funnel, widgetProducts, convRaw, invResult, skuNames, bundleRaw, pmRaw,
   } = await allNamed({
     ordersRaw: fetchTab(TABS.orders),
     cancRaw: fetchTab(TABS.cancellations),
@@ -768,6 +892,9 @@ export async function buildPayload() {
     skuNames: loadSkuCatalogue(),
     bundleRaw: fetchTabAny(TABS.bundles, getInventorySheetId(), "Bundle_SKU (ISBN)")
       .then((r) => r.rows).catch(() => []),
+    // column-checked: gviz serves some other tab rather than failing on a typo
+    pmRaw: fetchTabAny(TABS.pmOrders, null, "Tracking Status")
+      .then((r) => r.rows).catch(() => []),
   });
 
   const now = new Date();
@@ -778,8 +905,10 @@ export async function buildPayload() {
   });
 
   const orders = normalizeOrders(ordersRaw);
-  const cancellations = normalizeCanc(cancRaw);
-  const aging = normalizeAging(agingRaw);
+  const pmOrders = normalizePmOrders(pmRaw);
+  const pmStats = applyPmOverrides(orders, pmOrders);
+  const cancellations = applyPmCanc(normalizeCanc(cancRaw), pmOrders);
+  const aging = applyPmAging(normalizeAging(agingRaw), pmOrders, orders);
   /**
    * Inventory comes from the "Inventory Bifurcation" tab and nothing else.
    * There is deliberately no Stock_Raw fallback: falling back produced a page
@@ -810,6 +939,9 @@ export async function buildPayload() {
     orders, cancellations, aging, stock, returns,
     skuNames,
     bundles: normalizeBundles(bundleRaw),
+    pmOrderCount: Object.keys(pmOrders).length,
+    pmTouched: pmStats.touched,
+    pmRestaged: pmStats.restaged,
     clicks: clicksResult.rows,
     stockSource, stockError,
     funnel, widgetProducts,
