@@ -240,7 +240,7 @@
   .matchnote b{color:var(--txt)}
   .matchnote.warn{border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.09)}
   .ofunnelwrap{overflow-x:auto;margin:2px 0 6px}
-  .ofunnel{display:block;width:100%;min-width:620px;height:auto}
+  .ofunnel{display:block;width:100%;min-width:780px;height:auto}
   .oseg{cursor:zoom-in}
   .oseg path{transition:opacity .18s}
   .oseg:hover path{opacity:.82}
@@ -248,7 +248,12 @@
   .oseg:focus path{stroke:var(--cyan);stroke-width:2.5}
   .ofunnel .opc{font:700 20px/1 'Space Grotesk','Inter',sans-serif}
   .ofunnel .olb{font:600 12.5px/1 var(--f)}
-  .ofunnel .ocap{font:700 16px/1 'Space Grotesk','Inter',sans-serif;fill:var(--amber)}
+  .ofunnel .ocnt{font:700 15px/1 'Space Grotesk','Inter',sans-serif}
+  .ofunnel .ocap{font:700 17px/1 'Space Grotesk','Inter',sans-serif;fill:var(--amber)}
+  .ofunnel .olkl{font:800 10px/1 var(--f);letter-spacing:.13em}
+  .ofunnel .olkv{font:700 14px/1 'Space Grotesk','Inter',sans-serif}
+  .oleak-g.hot{cursor:zoom-in}
+  .oleak-g.hot:hover rect{opacity:.3}
   .osteps{margin-top:10px;border-top:1px solid var(--line)}
   .orow{display:flex;align-items:center;gap:9px;padding:7px 2px;
     border-bottom:1px solid var(--line);cursor:zoom-in;font-size:12px}
@@ -1821,6 +1826,7 @@ function orderFunnel(O){
   var list=Object.keys(ord).map(function(k){return ord[k];});
   var any=function(o,re){return o.stages.some(function(s){return re.test(s);});};
 
+  var UNASSIGNED=/^pending$/i;
   var cancelled=list.filter(function(o){return any(o,DEAD);});
   var rto=list.filter(function(o){return any(o,RTO);});
   var returned=list.filter(function(o){return any(o,RET)&&!any(o,RTO);});
@@ -1828,6 +1834,9 @@ function orderFunnel(O){
   var moving=list.filter(function(o){return any(o,MOVING);});
   var dispatched=list.filter(function(o){return any(o,COURIER);});
   var packed=list.filter(function(o){return o.packed;});
+  /* assigned = confirmed and no longer merely Pending */
+  var assigned=list.filter(function(o){
+    return !any(o,DEAD)&&!o.stages.every(function(x){return UNASSIGNED.test(x);});});
   var confirmed=list.filter(function(o){return !any(o,DEAD);});
 
   /* make every level a superset of the one below it, so the funnel is monotonic
@@ -1838,7 +1847,8 @@ function orderFunnel(O){
   moving=U(moving,delivered);
   dispatched=U(dispatched,moving);
   packed=U(packed,dispatched);
-  confirmed=U(confirmed,packed);
+  assigned=U(assigned,packed);
+  confirmed=U(confirmed,assigned);
 
   return {
     steps:[
@@ -1846,6 +1856,8 @@ function orderFunnel(O){
        note:'every unique order in range'},
       {key:'confirmed',label:'Confirmed',      rows:confirmed,
        note:'not cancelled'},
+      {key:'assigned', label:'Assigned',       rows:assigned,
+       note:'picked up by the warehouse'},
       {key:'packed',   label:'Packed',         rows:packed,
        note:'manifested and ready to hand over'},
       {key:'dispatched',label:'Shipped',       rows:dispatched,
@@ -1856,9 +1868,11 @@ function orderFunnel(O){
        note:'reached the customer'}
     ],
     leaks:[
-      {label:'Cancelled',rows:cancelled,c:'var(--red)'},
-      {label:'RTO',      rows:rto,      c:'var(--amber)'},
-      {label:'Returned', rows:returned, c:'var(--pink)'}
+      /* at: the stage boundary the loss happens at, so the branch can be drawn
+         under the right part of the funnel instead of floating beneath it */
+      {label:'Cancelled',rows:cancelled,c:'#F87171',at:1},
+      {label:'RTO',      rows:rto,      c:'#FBBF24',at:5},
+      {label:'Returned', rows:returned, c:'#F472B6',at:6}
     ],
     total:list.length
   };
@@ -1877,10 +1891,10 @@ function drawOrderFunnel(O){
      shape of the pipeline. Each stage keeps its own column, and the label sits
      on the column's centre line - that way a thin stage like Delivered is still
      readable instead of having its text squeezed out. */
-  var W=1000,H=400,PAD=26,CY=H/2;
-  var n=f.steps.length, colW=(W-90)/n;
+  var W=1180,H=470,PAD=22,CY=180;   /* CY above centre: the leak branches hang below */
+  var n=f.steps.length, colW=(W-96)/n;
   var maxV=Math.max(1,f.steps[0].rows.length);
-  var hOf=function(v){return Math.max(10,(H-PAD*2)*(v/maxV));};
+  var hOf=function(v){return Math.max(10,300*(v/maxV));};
 
   /* dark -> light, the way the shape itself reads: mass at the front */
   var FILL=['#2F3A4C','#12496A','#2E8FC0','#74BDE2','#BBDDF2','#DDE7F0'];
@@ -1904,10 +1918,12 @@ function drawOrderFunnel(O){
       'aria-label="'+label+': '+cnt+' orders">'+
       '<title>'+label+' — '+cnt+' orders ('+pct.toFixed(1)+'%) · '+esc(st.note)+'</title>'+
       '<path d="'+top+' '+bot+'" fill="'+FILL[i%FILL.length]+'"/>'+
-      '<text x="'+cx+'" y="'+(CY-8)+'" text-anchor="middle" class="opc" '+
+      '<text x="'+cx+'" y="'+(CY-16)+'" text-anchor="middle" class="opc" '+
         'fill="'+TEXT[i%TEXT.length]+'">'+pct.toFixed(0)+'%</text>'+
-      '<text x="'+cx+'" y="'+(CY+14)+'" text-anchor="middle" class="olb" '+
-        'fill="'+TEXT[i%TEXT.length]+'">'+label+' '+cnt+'</text>'+
+      '<text x="'+cx+'" y="'+(CY+4)+'" text-anchor="middle" class="olb" '+
+        'fill="'+TEXT[i%TEXT.length]+'">'+label+'</text>'+
+      '<text x="'+cx+'" y="'+(CY+24)+'" text-anchor="middle" class="ocnt" '+
+        'fill="'+TEXT[i%TEXT.length]+'">'+cnt+'</text>'+
       '</g>';
     outline+=(i===0?'M '+x0+' '+(CY-h0)+' ':'')+
       'C '+cx+' '+(CY-h0)+' '+cx+' '+(CY-h1)+' '+x1+' '+(CY-h1)+' ';
@@ -1927,9 +1943,37 @@ function drawOrderFunnel(O){
 
   /* the end cap: the number that actually matters, pulled out of the taper */
   var last=f.steps[n-1].rows.length;
-  var ex=PAD+n*colW+34;
-  svg+='<circle cx="'+ex+'" cy="'+CY+'" r="26" fill="none" stroke="'+cssVar('--amber')+'" stroke-width="2.4"/>'+
-    '<text x="'+ex+'" y="'+(CY+5)+'" text-anchor="middle" class="ocap">'+fmtN(last)+'</text>';
+  var ex=PAD+n*colW+36;
+  svg+='<circle cx="'+ex+'" cy="'+CY+'" r="27" fill="none" stroke="'+cssVar('--amber')+'" stroke-width="2.4"/>'+
+    '<text x="'+ex+'" y="'+(CY+6)+'" text-anchor="middle" class="ocap">'+fmtN(last)+'</text>';
+
+  /* Losses are drawn ON the funnel, branching down from the stage where they
+     happen. Kept off to the side they read as a footnote, and the whole point
+     of the chart is that the orders leaving are as important as the ones
+     carrying through. */
+  var BASE=CY+160;
+  f.leaks.forEach(function(l,li){
+    var cnt=l.rows.length;
+    var at=Math.min(n-1,Math.max(1,l.at||1));
+    var bx=PAD+at*colW;
+    var vAt=f.steps[at].rows.length;
+    var by=CY+hOf(vAt)/2;
+    var ty=BASE+li*0;                       /* one row, chips side by side */
+    var chipW=Math.max(132,18+String(l.label).length*8.6);
+    var cxChip=bx;
+    svg+='<g class="oleak-g'+(cnt?' hot':'')+'" data-leak="'+esc(l.label)+'">'+
+      '<title>'+esc(l.label)+' — '+fmtN(cnt)+' orders leave the funnel here</title>'+
+      '<path d="M '+bx+' '+by+' L '+bx+' '+(ty-16)+'" stroke="'+l.c+'" stroke-width="1.8" '+
+        'stroke-dasharray="4 4" fill="none" opacity=".9"/>'+
+      '<path d="M '+(bx-5)+' '+(ty-19)+' L '+bx+' '+(ty-11)+' L '+(bx+5)+' '+(ty-19)+' Z" fill="'+l.c+'"/>'+
+      '<rect x="'+(cxChip-chipW/2)+'" y="'+ty+'" width="'+chipW+'" height="52" rx="10" '+
+        'fill="'+l.c+'" opacity=".14" stroke="'+l.c+'" stroke-width="1.4"/>'+
+      '<text x="'+cxChip+'" y="'+(ty+21)+'" text-anchor="middle" class="olkl" fill="'+l.c+'">'+
+        esc(l.label.toUpperCase())+'</text>'+
+      '<text x="'+cxChip+'" y="'+(ty+42)+'" text-anchor="middle" class="olkv" fill="'+l.c+'">'+
+        fmtN(cnt)+'  ·  '+(maxV?(cnt/maxV*100).toFixed(1):'0')+'%</text>'+
+      '</g>';
+  });
   svg+='</svg>';
 
   var h='<div class="ofunnelwrap">'+svg+'</div><div class="osteps">';
@@ -2007,6 +2051,16 @@ function drawOrderFunnel(O){
     FSTEP_REFS=refs;
     render();drawDrillBar();
   }
+  el('ordFunnel').querySelectorAll('.oleak-g').forEach(function(g){
+    var l=f.leaks.filter(function(x){return x.label===g.dataset.leak;})[0];
+    if(!l||!l.rows.length)return;
+    g.style.cursor='zoom-in';
+    g.onclick=function(){
+      var refs={};l.rows.forEach(function(o){refs[o.ref]=1;});
+      drillTo('fstep','leak:'+l.label,l.label);
+      FSTEP_REFS=refs;
+      render();drawDrillBar();
+    };});
   el('ordFunnel').querySelectorAll('.oseg,.orow').forEach(function(d){
     var i=+d.dataset.step;
     d.onclick=function(){pickStep(i);};
