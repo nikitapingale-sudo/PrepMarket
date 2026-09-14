@@ -4731,11 +4731,7 @@ function tblLots(){
     {k:'prep',label:'PrepOnline',r:1,tot:fmtN},
     {k:'available',label:'Available',r:1,tot:fmtN,
      fmt:function(v){return v<=0?'<span class="tone-red">0</span>'
-       :(v<20?'<span class="tone-amber">'+fmtN(v)+'</span>':fmtN(v));}},
-    {k:'moved',label:'Moved Out',r:1,tot:fmtN,
-     fmt:function(v){return v<0
-       ? '<span class="tone-amber" title="more on hand than was ever ordered in">'+fmtN(v)+'</span>'
-       : fmtN(v);}});
+       :(v<20?'<span class="tone-amber">'+fmtN(v)+'</span>':fmtN(v));}});
 
   renderTable('tblLots',cols,data,'No lot data.',
     {name:'Lot Inbound',totals:1,pageSize:20,pager:'pgLots',
@@ -4753,8 +4749,6 @@ function tblLots(){
   bits.push('<b>The lots are columns I–M</b> ('+esc((DATA.lots||[]).map(function(l){return l.label;}).join(', '))+
     '). Column N is <i>Total Ordered Inventory</i>, the sheet’s own sum of those five — it is '+
     'shown as the total, not treated as a sixth lot, which would have counted every unit twice.');
-  bits.push('<b>Moved Out = Total Ordered − Available.</b> Everything that has left the shelf since '+
-    'it arrived: sold, consumed into a bundle, damaged or adjusted. Not a sales figure.');
   if(DATA.lotSumMismatch)
     bits.push('<b class="tone-amber">'+fmtN(DATA.lotSumMismatch)+' SKUs where the lot cells do not '+
       'add up to the sheet’s own total</b> — flagged with &#9888; in the Total Ordered column.');

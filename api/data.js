@@ -256,7 +256,6 @@ function normalizeLots(res) {
   out.rows = Object.values(merged).map((e) => {
     // the sheet totals the lots itself; disagreeing with it is worth reporting
     if (e.ordered && e.ordered !== e.inbound) out.sumMismatch++;
-    e.moved = e.ordered - e.available;
     return e;
   });
   out.lots = out.lots.filter((l) => out.rows.some((r) => r.qty[l.label]));
