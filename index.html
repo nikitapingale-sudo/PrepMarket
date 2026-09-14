@@ -638,6 +638,7 @@
   <!-- ================= OPERATIONS ================= -->
   <section class="pane" id="pane-ops">
     <div class="kpis" id="opsKpis"></div>
+    <div class="matchnote" id="cancNote" style="display:none"></div>
 
     <div class="card">
       <h2>Courier split <span class="tag">orders and revenue, split by payment mode</span><span class="spacer"></span><button class="xls" data-xls="tblCourier">&#8681; EXCEL</button></h2>
@@ -1495,13 +1496,41 @@ function ordersAllStatus(from,to){
 function ordersIn(from,to){
   return DATA.orders.filter(function(r){return r.day>=from&&r.day<=to&&passDims(r);});
 }
+/**
+ * Which orders are cancelled comes from Orders_Raw - the same sheet the Status
+ * filter reads - and the reason / cancelled-by are joined in from
+ * Cancellations_Raw, which is the only place those exist.
+ *
+ * This used to read Cancellations_Raw directly, and the two sheets do not hold
+ * the same population: some orders are cancelled in Orders_Raw but absent from
+ * the cancellation tab, and the tab still lists orders the PrepOnline sheet has
+ * since shipped. The result was a card saying 43 while filtering Status =
+ * Cancelled returned fewer, with nothing on screen to explain the gap.
+ *
+ * It also puts cancellations on the same date axis as everything else. The old
+ * version bucketed by CANCEL date onto an ORDER-date axis, so a cancellation
+ * landed on a different day from the order it belonged to. The cancel date is
+ * kept as cancelledOn for anyone who needs it.
+ *
+ * The status filter is deliberately bypassed: cancellations have to stay
+ * visible on their own card even when the default filter hides them.
+ */
 function cancIn(from,to){
-  var refs=drillOrderRefs();
-  return DATA.cancellations.filter(function(r){
-    return r.day>=from&&r.day<=to&&inSel('wh',r.warehouse)&&drillPass(r,'canc')&&
-      (!refs||refs[r.order])&&
-      (!F.q||[r.order,r.sku,r.product,r.reason,r.by].some(function(v){
-        return v&&String(v).toLowerCase().indexOf(F.q)>=0;}));
+  var meta={},byOrder={};
+  (DATA.cancellations||[]).forEach(function(c){
+    if(c.superseded)return;
+    var k=c.order+'|'+c.sku;
+    if(!meta[k])meta[k]=c;
+    if(!byOrder[c.order])byOrder[c.order]=c;
+  });
+  return ordersAllStatus(from,to).filter(function(r){
+    return /^cancelled$/i.test(r.stage);
+  }).map(function(r){
+    var m=meta[r.ref+'|'+r.sku]||byOrder[r.ref]||{};
+    return {order:r.ref,day:r.day,cancelledOn:m.day||null,
+      sku:r.sku,product:r.product,qty:r.qty,value:r.price,
+      by:m.by||'Unknown',reason:m.reason||'Not given',
+      channel:r.channel,warehouse:r.warehouse};
   });
 }
 /* days actually inside the selected window, clamped to days we have data for */
@@ -1608,7 +1637,8 @@ function render(){
         function(r){return r.pay;})}},
     /* delta compares the count shown on the card, matching the Operations tab.
        Comparing the rate here instead made the two tabs disagree on direction. */
-    {lab:'Cancellations',v:Cc.length,f:fmtN,sub:pct(cancRate)+' of line items · '+fmtK(cancVal)+' lost',
+    {lab:'Cancellations',v:Cc.length,f:fmtN,
+      sub:fmtN(uniq(Cc,function(r){return r.order;}))+' orders · '+pct(cancRate)+' of lines · '+fmtK(cancVal)+' lost',
       a1:'var(--red)',a2:'var(--pink)',gl:'rgba(248,113,113,.25)',d:delta(Cc.length,PC.length,true),
       sp:sCanc,spc:cssVar('--red')},
     {lab:'Delivered',v:delivered,f:fmtN,sub:'orders delivered in range',
@@ -1662,7 +1692,8 @@ function render(){
   var over7=agingRows.filter(function(r){return r.age>7;});
   var over3=agingRows.filter(function(r){return r.age>3;});
   paintKpis('opsKpis',[
-    {lab:'Cancellations',v:Cc.length,f:fmtN,sub:pct(cancRate)+' of line items',
+    {lab:'Cancellations',v:Cc.length,f:fmtN,
+      sub:fmtN(uniq(Cc,function(r){return r.order;}))+' orders · '+pct(cancRate)+' of lines',
       a1:'var(--red)',a2:'var(--pink)',gl:'rgba(248,113,113,.25)',d:delta(Cc.length,PC.length,true),
       sp:sCanc,spc:cssVar('--red')},
     {lab:'Value Lost',v:cancVal,f:fmtK,
@@ -1791,7 +1822,7 @@ function render(){
   drawOrderFunnel(ordersAllStatus(F.from,F.to));
   tblTop5(O);
   tblSku(O);tblState(O);tblCity(O);tblChannel(O,Cc);tblCat(O);
-  tblCanc(Cc);tblAging(agingRows);
+  tblCanc(Cc);tblAging(agingRows);drawCancNote(Cc);
   tblBundles(O,span);tblOOS(O,span);tblStock(O,span);tblStockAll(O,span);drawMatchNote(O);
   tblExplorer(O);tblDaily(days,byDay);
 }
@@ -4059,6 +4090,49 @@ function countTable(elmId,name,label,rows,countLabel){
 }
 
 function tblPayMix(O){mixTable('tblPayMix','Payment Split','Payment',O,function(r){return r.pay;},'pay');}
+
+/**
+ * Explains the cancellation count, because two cards reading two sheets is
+ * exactly the kind of thing that quietly destroys trust in a dashboard.
+ *
+ * The KPI counts LINE ITEMS from Cancellations_Raw. Selecting Status =
+ * Cancelled filters Orders_Raw. Those are different sheets and different units,
+ * so they can differ for three separate reasons - and until you can see which,
+ * the only available conclusion is that one of them is broken.
+ */
+function drawCancNote(Cc){
+  var host=el('cancNote');if(!host)return;
+  var rec=DATA.cancReconcile||{missingFromCancTab:[],notCancelledInOrders:[]};
+  var sup=(DATA.cancellations||[]).filter(function(c){return c.superseded;});
+  var lines=Cc.length, orders=uniq(Cc,function(r){return r.order;});
+  var bits=[];
+  if(lines!==orders)
+    bits.push('This counts <b>line items</b> ('+fmtN(lines)+') across <b>'+fmtN(orders)+
+      ' orders</b> — a cancelled order with three books is three lines. The funnel counts orders.');
+  if(rec.missingFromCancTab&&rec.missingFromCancTab.length)
+    bits.push('<b>'+fmtN(rec.missingFromCancTab.length)+' order'+
+      (rec.missingFromCancTab.length>1?'s are':' is')+' cancelled in Orders_Raw but missing from '+
+      'Cancellations_Raw</b> ('+esc(rec.missingFromCancTab.slice(0,4).join(', '))+
+      ') — counted here, but showing <i>Not given</i> as the reason.');
+  if(sup.length)
+    bits.push('<b>'+fmtN(sup.length)+'</b> cancellation'+(sup.length>1?'s were':' was')+
+      ' retired because the PrepOnline sheet shows the parcel moved: '+
+      esc(sup.map(function(c){return c.order+' → '+c.superseded;}).join(', '))+
+      '. They are no longer counted anywhere.');
+  if(rec.notCancelledInOrders&&rec.notCancelledInOrders.length)
+    bits.push('<b>'+fmtN(rec.notCancelledInOrders.length)+' order'+
+      (rec.notCancelledInOrders.length>1?'s are':' is')+' listed in Cancellations_Raw but no longer '+
+      'cancelled in Orders_Raw</b> ('+esc(rec.notCancelledInOrders.slice(0,4).join(', '))+
+      ') — not counted, because Orders_Raw is the authority on status.');
+  if(!bits.length){host.style.display='none';return;}
+  host.style.display='block';
+  host.className='matchnote'+((rec.missingFromCancTab||[]).length||
+    (rec.notCancelledInOrders||[]).length?' warn':'');
+  host.innerHTML='<b>How cancellations are counted.</b> Which orders count comes from '+
+    '<b>Orders_Raw</b> — the same sheet the Status filter reads, so the two always agree. '+
+    'Reasons are joined in from <b>Cancellations_Raw</b>.<br>&bull; '+
+    bits.join('<br>&bull; ');
+}
 
 function tblCancBy(Cc){
   var m={};Cc.forEach(function(r){m[r.by]=(m[r.by]||0)+1;});

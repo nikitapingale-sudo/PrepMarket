@@ -786,12 +786,40 @@ function normalizePmOrders(raw) {
 /* Cancellations are keyed by order too, so the warehouse filter can reach them
    the same way. Without this the cancellation count stayed identical under
    both warehouses, which made the filter look broken. */
+/**
+ * Cancellations get the warehouse stamp, and are retired when the PrepOnline
+ * sheet contradicts them.
+ *
+ * Cancellations_Raw is EasyEcom's record of what was cancelled. For a handful
+ * of orders the PrepOnline sheet shows the parcel was actually delivered or is
+ * in transit, and the override already treats those as live orders. Leaving
+ * their rows in the cancellation count made the dashboard argue with itself:
+ * the KPI said 43 while filtering Status = Cancelled returned 40. Same fact,
+ * two answers, depending on which card you looked at.
+ *
+ * They are flagged rather than deleted so the count of retired rows can be
+ * shown, instead of three cancellations quietly evaporating.
+ */
 function applyPmCanc(cancellations, pm) {
+  let superseded = 0;
   for (const c of cancellations) {
     const p = pm[c.order];
     c.warehouse = p ? (p.warehouse || "PrepOnline Warehouse") : "AAJ Warehouse";
+    if (p && p.track && !/cancel/i.test(p.track)) { c.superseded = p.track; superseded++; }
   }
-  return cancellations;
+  return { rows: cancellations, superseded };
+}
+
+/** Orders the two cancellation sources disagree about, for an on-screen note. */
+function cancReconcile(orders, cancellations) {
+  const inTab = new Set(cancellations.filter((c) => !c.superseded).map((c) => c.order));
+  const inOrders = new Set(
+    orders.filter((o) => /^cancelled$/i.test(o.stage)).map((o) => o.ref)
+  );
+  return {
+    missingFromCancTab: [...inOrders].filter((r) => !inTab.has(r)),
+    notCancelledInOrders: [...inTab].filter((r) => !inOrders.has(r)),
+  };
 }
 
 function applyPmAging(aging, pm, orders) {
@@ -918,7 +946,8 @@ export async function buildPayload() {
   const orders = normalizeOrders(ordersRaw);
   const pmOrders = normalizePmOrders(pmRaw);
   const pmStats = applyPmOverrides(orders, pmOrders);
-  const cancellations = applyPmCanc(normalizeCanc(cancRaw), pmOrders);
+  const cancResult = applyPmCanc(normalizeCanc(cancRaw), pmOrders);
+  const cancellations = cancResult.rows;
   const aging = applyPmAging(normalizeAging(agingRaw), pmOrders, orders);
   /**
    * Inventory comes from the "Inventory Bifurcation" tab and nothing else.
@@ -951,6 +980,8 @@ export async function buildPayload() {
     skuNames,
     bundles: normalizeBundles(bundleRaw),
     pmOrderCount: Object.keys(pmOrders).length,
+    cancSuperseded: cancResult.superseded,
+    cancReconcile: cancReconcile(orders, cancellations),
     pmTouched: pmStats.touched,
     pmRestaged: pmStats.restaged,
     clicks: clicksResult.rows,
