@@ -1142,19 +1142,6 @@ export async function buildPayload() {
     lotNoSku: lotResult.data.noSku,
     lotError: lotResult.error,
     lotConfigured: Boolean(getLotSheetId()),
-    /**
-     * Names only, never values. A missing environment variable and a
-     * mistyped one look identical from the outside - the page just says
-     * "not configured" either way - and the only way to tell them apart
-     * without this is to guess. Sheet IDs stay secret; the KEY names are
-     * not sensitive.
-     */
-    envDiag: {
-      lotIdLength: (process.env.LOT_SHEET_ID || "").trim().length,
-      keysSeen: Object.keys(process.env)
-        .filter((k) => /SHEET|LOT/i.test(k))
-        .sort(),
-    },
     pmOrderCount: Object.keys(pmOrders).length,
     cancSuperseded: cancResult.superseded,
     cancReconcile: cancReconcile(orders, cancellations),
