@@ -42,6 +42,9 @@ function getSheetId() {
 function getInventorySheetId() {
   return (process.env.INVENTORY_SHEET_ID || "").trim() || getSheetId();
 }
+function getLotSheetId() {
+  return (process.env.LOT_SHEET_ID || "").trim();
+}
 
 const TABS = {
   orders: "Orders_Raw",
@@ -59,6 +62,7 @@ const TABS = {
   bundles: ["Bundle Child Mapping ", "Bundle Child Mapping"],
   // Shopify export + operational columns for orders PrepOnline fulfils itself
   pmOrders: ["Prepmarket Order Data"],
+  lots: ["Data"],
 };
 
 /* ---------- gviz fetch: returns [{header: value, ...}, ...] ---------- */
@@ -113,6 +117,115 @@ async function fetchTab(sheetName, sheetId) {
       return o;
     })
     .filter((o) => Object.values(o).some((v) => v !== null && v !== ""));
+}
+
+/**
+ * Same fetch, but keeping cells in COLUMN ORDER rather than keying them by
+ * header.
+ *
+ * The lot sheet is addressed by column letter - type in E, quantities in I
+ * through N - so position is the contract, not the header text. The normal
+ * reader drops any column whose header is blank, which would silently shift
+ * every lot one place to the left the moment someone leaves a heading empty.
+ */
+async function fetchTabPositional(sheetName, sheetId) {
+  const url =
+    `https://docs.google.com/spreadsheets/d/${sheetId || getSheetId()}/gviz/tq` +
+    `?tqx=out:json&headers=1&sheet=${encodeURIComponent(sheetName)}`;
+  const res = await fetch(url, { redirect: "follow" });
+  const text = await res.text();
+  /**
+   * A private sheet answers with Google's sign-in PAGE, not an error. That page
+   * is full of CSS braces, so "does it contain a {" happily accepts it and the
+   * failure surfaces as an unreadable JSON parse error. The gviz envelope is
+   * the only reliable proof we got data.
+   */
+  const envelope = text.indexOf("setResponse(");
+  if (envelope < 0) {
+    const signin = /accounts\.google\.com|ServiceLogin|Request access/i.test(text);
+    throw new Error(
+      signin || res.status === 401 || res.status === 403
+        ? `The lot sheet is private (HTTP ${res.status}). Open it, then Share → General access → ` +
+          `"Anyone with the link" → Viewer.`
+        : `Lot sheet tab "${sheetName}" did not return data (HTTP ${res.status}).`
+    );
+  }
+  const start = text.indexOf("{", envelope), end = text.lastIndexOf("}");
+  if (start < 0 || end < 0) throw new Error(`Lot sheet tab "${sheetName}" returned no table.`);
+  const payload = JSON.parse(text.slice(start, end + 1));
+  if (payload.status === "error") {
+    throw new Error(
+      `Google returned an error for tab "${sheetName}": ` +
+      (payload.errors && payload.errors[0] ? payload.errors[0].detailed_message : "unknown")
+    );
+  }
+  const table = payload.table;
+  if (!table || !table.rows) return { headers: [], rows: [] };
+  let headers = (table.cols || []).map((c) => String(c.label || "").trim());
+  let rows = table.rows.map((r) => (r.c || []).map((c) => (c && c.v != null ? c.v : null)));
+  if (headers.every((h) => !h) && rows.length) {
+    headers = rows[0].map((v) => (v == null ? "" : String(v).trim()));
+    rows = rows.slice(1);
+  }
+  return { headers, rows };
+}
+
+/**
+ * Lot-wise inbound quantities, one row per simple (child) SKU.
+ *
+ * Column E carries the product type and only "Simple" rows are real stock
+ * lines - bundles would double-count, since a combo's quantity is already
+ * represented by its children. Columns I to N are the individual lots, and
+ * their HEADERS name the lots, so a new lot column starts appearing the moment
+ * it is filled in rather than needing a code change.
+ */
+const LOT_FIRST_COL = 8;   // I
+const LOT_LAST_COL = 13;   // N
+function normalizeLots(res) {
+  const out = { lots: [], rows: [], skipped: 0 };
+  if (!res || !Array.isArray(res.rows) || !res.rows.length) return out;
+  const H = res.headers || [];
+  const squashed = H.map((h) => squash(h));
+  const findCol = (names) => {
+    for (const n of names) {
+      const i = squashed.indexOf(squash(n));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
+  const iSku = findCol(["SKU", "Component_SKU (ISBN)", "Component SKU", "Child SKU", "EAN"]);
+  const iName = findCol(["Product Name", "Title", "Name", "Component_name", "Description"]);
+  const iType = 4;   // E
+
+  for (let c = LOT_FIRST_COL; c <= LOT_LAST_COL; c++) {
+    const label = (H[c] || "").trim();
+    out.lots.push({ col: c, label: label || `Lot ${c - LOT_FIRST_COL + 1}` });
+  }
+
+  const merged = {};
+  for (const r of res.rows) {
+    const type = strip(r[iType]);
+    if (!/simple/i.test(type)) { out.skipped++; continue; }
+    const sku = strip(iSku >= 0 ? r[iSku] : null);
+    if (!sku) continue;
+    const e = merged[sku] || (merged[sku] = {
+      sku,
+      product: strip(iName >= 0 ? r[iName] : null),
+      qty: {},
+      inbound: 0,
+    });
+    if (!e.product && iName >= 0) e.product = strip(r[iName]);
+    for (const l of out.lots) {
+      const v = num(r[l.col]);
+      if (!v) continue;
+      e.qty[l.label] = (e.qty[l.label] || 0) + v;
+      e.inbound += v;
+    }
+  }
+  out.rows = Object.keys(merged).map((k) => merged[k]);
+  // lots nobody has put anything into yet would render as dead columns
+  out.lots = out.lots.filter((l) => out.rows.some((r) => r.qty[l.label]));
+  return out;
 }
 
 /**
@@ -914,7 +1027,7 @@ export async function buildPayload() {
    */
   const {
     ordersRaw, cancRaw, agingRaw, returnsRaw,
-    clicksResult, funnel, widgetProducts, convRaw, invResult, skuNames, bundleRaw, pmRaw,
+    clicksResult, funnel, widgetProducts, convRaw, invResult, skuNames, bundleRaw, pmRaw, lotResult,
   } = await allNamed({
     ordersRaw: fetchTab(TABS.orders),
     cancRaw: fetchTab(TABS.cancellations),
@@ -934,6 +1047,14 @@ export async function buildPayload() {
     // column-checked: gviz serves some other tab rather than failing on a typo
     pmRaw: fetchTabAny(TABS.pmOrders, null, "Tracking Status")
       .then((r) => r.rows).catch(() => []),
+    /* optional: without LOT_SHEET_ID the Inventory page simply omits the view,
+       and a read failure is reported rather than swallowed, because "no lots"
+       and "cannot see the lot sheet" need different actions */
+    lotResult: getLotSheetId()
+      ? fetchTabPositional(TABS.lots[0], getLotSheetId())
+          .then((r) => ({ data: normalizeLots(r), error: null }))
+          .catch((e) => ({ data: { lots: [], rows: [], skipped: 0 }, error: e.message }))
+      : Promise.resolve({ data: { lots: [], rows: [], skipped: 0 }, error: null }),
   });
 
   const now = new Date();
@@ -979,6 +1100,11 @@ export async function buildPayload() {
     orders, cancellations, aging, stock, returns,
     skuNames,
     bundles: normalizeBundles(bundleRaw),
+    lots: lotResult.data.lots,
+    lotRows: lotResult.data.rows,
+    lotSkipped: lotResult.data.skipped,
+    lotError: lotResult.error,
+    lotConfigured: Boolean(getLotSheetId()),
     pmOrderCount: Object.keys(pmOrders).length,
     cancSuperseded: cancResult.superseded,
     cancReconcile: cancReconcile(orders, cancellations),

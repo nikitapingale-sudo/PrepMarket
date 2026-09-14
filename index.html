@@ -812,6 +812,13 @@
       <div class="card"><h2>Stock split by warehouse</h2><div class="chartbox sm"><canvas id="whChart"></canvas></div></div>
     </div>
 
+    <div class="card" id="lotCard" style="display:none">
+      <h2>Lot-wise inbound <span class="tag" id="lotTag"></span><span class="spacer"></span><button class="xls" data-xls="tblLots">&#8681; EXCEL</button></h2>
+      <div class="matchnote" id="lotNote"></div>
+      <div class="overflow" id="tblLots"></div>
+      <div class="pager" id="pgLots"></div>
+    </div>
+
     <div class="card" id="bundleCard" style="display:none">
       <h2>Bundle inventory <span class="tag" id="bundleTag"></span><span class="spacer"></span><button class="xls" data-xls="tblBundles">&#8681; EXCEL</button></h2>
       <div class="matchnote" id="bundleNote"></div>
@@ -1823,7 +1830,7 @@ function render(){
   tblTop5(O);
   tblSku(O);tblState(O);tblCity(O);tblChannel(O,Cc);tblCat(O);
   tblCanc(Cc);tblAging(agingRows);drawCancNote(Cc);
-  tblBundles(O,span);tblOOS(O,span);tblStock(O,span);tblStockAll(O,span);drawMatchNote(O);
+  tblLots();tblBundles(O,span);tblOOS(O,span);tblStock(O,span);tblStockAll(O,span);drawMatchNote(O);
   tblExplorer(O);tblDaily(days,byDay);
 }
 
@@ -4651,6 +4658,102 @@ function tblOOS(O,span){
   el('oosTag').textContent=rows.length
     ? fmtN(rows.length)+' SKUs at zero'+(lost?' · '+lost+' of them were selling':'')
     : 'none';
+}
+
+/**
+ * How much of each simple SKU came in, lot by lot, against what is left.
+ *
+ * Only "Simple" rows (column E) are counted: a bundle's quantity is already
+ * represented by its children, so including both would double every combo.
+ * Lot columns are read from I to N by POSITION and named from their headers,
+ * so a new lot appears on its own once someone fills it in.
+ *
+ * Available comes from the Inventory Bifurcation sheet, joined on SKU - the lot
+ * sheet records what arrived, not what is left. Where the two cannot be joined
+ * the cell says so rather than showing a zero that reads as "sold out".
+ */
+function tblLots(){
+  var card=el('lotCard'),note=el('lotNote');
+  if(!card)return;
+  var lots=DATA.lots||[], rows=DATA.lotRows||[];
+
+  if(!DATA.lotConfigured){card.style.display='none';return;}
+  card.style.display='block';
+
+  if(DATA.lotError||!rows.length){
+    el('lotTag').textContent='not available';
+    note.className='matchnote warn';
+    note.innerHTML=DATA.lotError
+      ? '<b>Cannot read the lot sheet.</b><br><span style="color:var(--red)">'+esc(DATA.lotError)+'</span>'+
+        '<br><br>Open the sheet &rarr; <b>Share</b> &rarr; General access &rarr; '+
+        '<b>Anyone with the link</b> &rarr; <b>Viewer</b>. '+
+        'On Vercel also set <code style="color:var(--cyan)">LOT_SHEET_ID</code> under '+
+        'Project Settings &rarr; Environment Variables, then redeploy.'
+      : '<b>No <i>Simple</i> rows found in the lot sheet.</b> Column E decides the type, and only '+
+        'rows marked <i>Simple</i> are counted'+
+        (DATA.lotSkipped?' — '+fmtN(DATA.lotSkipped)+' rows were skipped as another type.':'.');
+    renderTable('tblLots',[{k:'sku',label:'SKU'}],[],'Nothing to show yet.',{name:'Lot Inbound'});
+    return;
+  }
+
+  /* available + titles come from the live inventory sheet */
+  var stock={};stockNow().forEach(function(r){stock[String(r.sku)]=r;});
+  var child=childOfMap();
+
+  var data=rows.map(function(r){
+    var st=stock[String(r.sku)];
+    var o={sku:r.sku,
+      product:r.product||(st?st.product:'')||'',
+      inbound:r.inbound,
+      available:st?st.available:null,
+      aaj:st?(st.aaj||0):null,
+      prep:st?(st.prep||0):null,
+      partOf:child[r.sku]?child[r.sku].join(', '):''};
+    o.moved=(o.available==null)?null:r.inbound-o.available;
+    lots.forEach(function(l){o['lot_'+l.label]=r.qty[l.label]||0;});
+    return o;
+  }).sort(function(a,b){return b.inbound-a.inbound;});
+
+  var cols=[{k:'sku',label:'SKU'},
+    {k:'product',label:'Title',fmt:function(v,r){
+      return esc(v||'(untitled)')+(r.partOf
+        ? ' <span class="pill vio" title="Sold only inside: '+esc(r.partOf)+'">child</span>':'');},
+     xl:function(v){return v||'';}}];
+  lots.forEach(function(l){
+    cols.push({k:'lot_'+l.label,label:l.label,r:1,
+      fmt:function(v){return v?fmtN(v):'<span class="tone-mute">—</span>';},
+      xl:function(v){return v||0;}});
+  });
+  cols.push(
+    {k:'inbound',label:'Total Inbound',r:1,bar:1,tot:fmtN},
+    {k:'available',label:'Available',r:1,tot:fmtN,
+     fmt:function(v){return v==null
+       ? '<span class="tone-mute" title="This SKU is not in the Inventory Bifurcation sheet">—</span>'
+       : (v<=0?'<span class="tone-red">0</span>':(v<20?'<span class="tone-amber">'+fmtN(v)+'</span>':fmtN(v)));},
+     xl:function(v){return v==null?'':v;}},
+    {k:'moved',label:'Moved Out',r:1,tot:fmtN,
+     fmt:function(v){return v==null?'<span class="tone-mute">—</span>'
+       :(v<0?'<span class="tone-amber" title="more on hand than the lot sheet records as inbound">'+fmtN(v)+'</span>'
+            :fmtN(v));},
+     xl:function(v){return v==null?'':v;}});
+
+  renderTable('tblLots',cols,data,'No lot data.',
+    {name:'Lot Inbound',totals:1,pageSize:20,pager:'pgLots',
+     drill:function(r){drillTo('invsku',r.sku,r.product||r.sku);}});
+
+  var tot=data.reduce(function(a,r){return a+r.inbound;},0);
+  var unmatched=data.filter(function(r){return r.available==null;}).length;
+  el('lotTag').textContent=fmtN(data.length)+' simple SKUs · '+fmtN(lots.length)+' lots · '+
+    fmtN(tot)+' units inbound';
+  note.className='matchnote'+(unmatched?' warn':'');
+  note.innerHTML=
+    '<b>Only <i>Simple</i> rows count.</b> Column E carries the product type, and a bundle’s '+
+    'quantity is already represented by its child SKUs, so counting both would double every combo'+
+    (DATA.lotSkipped?' — '+fmtN(DATA.lotSkipped)+' non-simple rows skipped':'')+'.<br>'+
+    '<b>Moved Out = Total Inbound − Available</b>, i.e. everything that has left the shelf since '+
+    'it arrived: sold, sent into a bundle, damaged or adjusted. It is not a sales figure.'+
+    (unmatched?'<br><b>'+fmtN(unmatched)+' SKUs are not in the Inventory Bifurcation sheet</b>, '+
+      'so Available and Moved Out show — rather than a zero that would read as sold out.':'');
 }
 
 function tblBundles(O,span){
