@@ -4696,64 +4696,81 @@ function tblLots(){
     return;
   }
 
-  /* available + titles come from the live inventory sheet */
-  var stock={};stockNow().forEach(function(r){stock[String(r.sku)]=r;});
   var child=childOfMap();
-
   var data=rows.map(function(r){
-    var st=stock[String(r.sku)];
-    var o={sku:r.sku,
-      product:r.product||(st?st.product:'')||'',
-      inbound:r.inbound,
-      available:st?st.available:null,
-      aaj:st?(st.aaj||0):null,
-      prep:st?(st.prep||0):null,
-      partOf:child[r.sku]?child[r.sku].join(', '):''};
-    o.moved=(o.available==null)?null:r.inbound-o.available;
-    lots.forEach(function(l){o['lot_'+l.label]=r.qty[l.label]||0;});
+    var o=Object.assign({},r,{
+      partOf:child[r.sku]?child[r.sku].join(', '):'',
+      /* the sheet totals its own lots in "Total Ordered Inventory"; if that
+         disagrees with the five lot cells, the cell says so instead of quietly
+         preferring one of them */
+      lotSum:r.inbound,
+      mismatch:r.ordered&&r.ordered!==r.inbound});
+    (DATA.lots||[]).forEach(function(l){o['lot_'+l.label]=r.qty[l.label]||0;});
     return o;
-  }).sort(function(a,b){return b.inbound-a.inbound;});
+  }).sort(function(a,b){return b.ordered-a.ordered;});
 
-  var cols=[{k:'sku',label:'SKU'},
-    {k:'product',label:'Title',fmt:function(v,r){
-      return esc(v||'(untitled)')+(r.partOf
-        ? ' <span class="pill vio" title="Sold only inside: '+esc(r.partOf)+'">child</span>':'');},
+  var cols=[
+    {k:'sku',label:'SKU Code'},
+    {k:'category',label:'Category'},
+    {k:'product',label:'SKU Name',fmt:function(v,r){
+      var t=esc(v||'(untitled)');
+      return (t.length>44?'<span title="'+esc(v)+'">'+t.slice(0,43)+'…</span>':t)+
+        (r.partOf?' <span class="pill vio" title="Sold only inside: '+esc(r.partOf)+'">child</span>':'');},
      xl:function(v){return v||'';}}];
-  lots.forEach(function(l){
+  (DATA.lots||[]).forEach(function(l){
     cols.push({k:'lot_'+l.label,label:l.label,r:1,
       fmt:function(v){return v?fmtN(v):'<span class="tone-mute">—</span>';},
       xl:function(v){return v||0;}});
   });
   cols.push(
-    {k:'inbound',label:'Total Inbound',r:1,bar:1,tot:fmtN},
+    {k:'ordered',label:'Total Ordered',r:1,bar:1,tot:fmtN,
+     fmt:function(v,r){return r.mismatch
+       ? '<span class="tone-amber" title="the sheet says '+fmtN(v)+' but the five lot cells add to '+
+         fmtN(r.lotSum)+'">'+fmtN(v)+' &#9888;</span>' : fmtN(v);}},
+    {k:'aaj',label:'AAJ',r:1,tot:fmtN},
+    {k:'prep',label:'PrepOnline',r:1,tot:fmtN},
     {k:'available',label:'Available',r:1,tot:fmtN,
-     fmt:function(v){return v==null
-       ? '<span class="tone-mute" title="This SKU is not in the Inventory Bifurcation sheet">—</span>'
-       : (v<=0?'<span class="tone-red">0</span>':(v<20?'<span class="tone-amber">'+fmtN(v)+'</span>':fmtN(v)));},
-     xl:function(v){return v==null?'':v;}},
+     fmt:function(v){return v<=0?'<span class="tone-red">0</span>'
+       :(v<20?'<span class="tone-amber">'+fmtN(v)+'</span>':fmtN(v));}},
     {k:'moved',label:'Moved Out',r:1,tot:fmtN,
-     fmt:function(v){return v==null?'<span class="tone-mute">—</span>'
-       :(v<0?'<span class="tone-amber" title="more on hand than the lot sheet records as inbound">'+fmtN(v)+'</span>'
-            :fmtN(v));},
-     xl:function(v){return v==null?'':v;}});
+     fmt:function(v){return v<0
+       ? '<span class="tone-amber" title="more on hand than was ever ordered in">'+fmtN(v)+'</span>'
+       : fmtN(v);}});
 
   renderTable('tblLots',cols,data,'No lot data.',
     {name:'Lot Inbound',totals:1,pageSize:20,pager:'pgLots',
      drill:function(r){drillTo('invsku',r.sku,r.product||r.sku);}});
 
-  var tot=data.reduce(function(a,r){return a+r.inbound;},0);
-  var unmatched=data.filter(function(r){return r.available==null;}).length;
-  el('lotTag').textContent=fmtN(data.length)+' simple SKUs · '+fmtN(lots.length)+' lots · '+
-    fmtN(tot)+' units inbound';
-  note.className='matchnote'+(unmatched?' warn':'');
-  note.innerHTML=
-    '<b>Only <i>Simple</i> rows count.</b> Column E carries the product type, and a bundle’s '+
+  var ordered=data.reduce(function(a,r){return a+r.ordered;},0);
+  var avail=data.reduce(function(a,r){return a+r.available;},0);
+  el('lotTag').textContent=fmtN(data.length)+' simple SKUs · '+fmtN((DATA.lots||[]).length)+
+    ' lots · '+fmtN(ordered)+' ordered · '+fmtN(avail)+' on hand';
+
+  var bits=[];
+  bits.push('<b>Only <i>Simple</i> rows count.</b> Column E carries the type, and a bundle’s '+
     'quantity is already represented by its child SKUs, so counting both would double every combo'+
-    (DATA.lotSkipped?' — '+fmtN(DATA.lotSkipped)+' non-simple rows skipped':'')+'.<br>'+
-    '<b>Moved Out = Total Inbound − Available</b>, i.e. everything that has left the shelf since '+
-    'it arrived: sold, sent into a bundle, damaged or adjusted. It is not a sales figure.'+
-    (unmatched?'<br><b>'+fmtN(unmatched)+' SKUs are not in the Inventory Bifurcation sheet</b>, '+
-      'so Available and Moved Out show — rather than a zero that would read as sold out.':'');
+    (DATA.lotSkipped?' — '+fmtN(DATA.lotSkipped)+' non-simple rows skipped':'')+'.');
+  bits.push('<b>The lots are columns I–M</b> ('+esc((DATA.lots||[]).map(function(l){return l.label;}).join(', '))+
+    '). Column N is <i>Total Ordered Inventory</i>, the sheet’s own sum of those five — it is '+
+    'shown as the total, not treated as a sixth lot, which would have counted every unit twice.');
+  bits.push('<b>Moved Out = Total Ordered − Available.</b> Everything that has left the shelf since '+
+    'it arrived: sold, consumed into a bundle, damaged or adjusted. Not a sales figure.');
+  if(DATA.lotSumMismatch)
+    bits.push('<b class="tone-amber">'+fmtN(DATA.lotSumMismatch)+' SKUs where the lot cells do not '+
+      'add up to the sheet’s own total</b> — flagged with &#9888; in the Total Ordered column.');
+  var ns=DATA.lotNoSku||[];
+  if(ns.length){
+    var nsQty=ns.reduce(function(a,r){return a+(r.ordered||0);},0);
+    bits.push('<b class="tone-amber">'+fmtN(ns.length)+' Simple row'+(ns.length>1?'s have':' has')+
+      ' no SKU Code</b> ('+esc(ns.map(function(r){return (r.product||'untitled').slice(0,40);}).join('; '))+
+      '), so '+fmtN(nsQty)+' ordered units are not in this table — there is no key to attach them to. '+
+      'Fill in column B to include them.');
+  }
+  if((DATA.lotShifted||[]).length)
+    bits.push('<b class="tone-amber">Columns have moved</b> since this was set up: '+
+      esc(DATA.lotShifted.join(', '))+'. Matched by header name, so the figures are still correct.');
+  note.className='matchnote'+((DATA.lotSumMismatch||(DATA.lotShifted||[]).length||ns.length)?' warn':'');
+  note.innerHTML='&bull; '+bits.join('<br>&bull; ');
 }
 
 function tblBundles(O,span){

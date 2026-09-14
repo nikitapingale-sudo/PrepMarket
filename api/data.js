@@ -123,10 +123,9 @@ async function fetchTab(sheetName, sheetId) {
  * Same fetch, but keeping cells in COLUMN ORDER rather than keying them by
  * header.
  *
- * The lot sheet is addressed by column letter - type in E, quantities in I
- * through N - so position is the contract, not the header text. The normal
+ * The lot sheet is addressed by column letter, so position matters. The normal
  * reader drops any column whose header is blank, which would silently shift
- * every lot one place to the left the moment someone leaves a heading empty.
+ * every later column one place left the moment someone leaves a heading empty.
  */
 async function fetchTabPositional(sheetName, sheetId) {
   const url =
@@ -171,59 +170,95 @@ async function fetchTabPositional(sheetName, sheetId) {
 }
 
 /**
- * Lot-wise inbound quantities, one row per simple (child) SKU.
+ * Lot columns are I..M. N is NOT a lot - it is "Total Ordered Inventory", the
+ * sheet's own sum of those five - so treating the stated I..N range literally
+ * would have counted every unit twice.
  *
- * Column E carries the product type and only "Simple" rows are real stock
- * lines - bundles would double-count, since a combo's quantity is already
- * represented by its children. Columns I to N are the individual lots, and
- * their HEADERS name the lots, so a new lot column starts appearing the moment
- * it is filled in rather than needing a code change.
+ * Columns are found by HEADER first and by position only as a fallback. The
+ * layout was given to me as letters, but a single inserted column would shift
+ * every one of them silently, and a lot quantity landing in the wrong lot is
+ * not the kind of error anyone would spot by eye.
  */
-const LOT_FIRST_COL = 8;   // I
-const LOT_LAST_COL = 13;   // N
-function normalizeLots(res) {
-  const out = { lots: [], rows: [], skipped: 0 };
-  if (!res || !Array.isArray(res.rows) || !res.rows.length) return out;
-  const H = res.headers || [];
-  const squashed = H.map((h) => squash(h));
-  const findCol = (names) => {
-    for (const n of names) {
-      const i = squashed.indexOf(squash(n));
-      if (i >= 0) return i;
-    }
-    return -1;
-  };
-  const iSku = findCol(["SKU", "Component_SKU (ISBN)", "Component SKU", "Child SKU", "EAN"]);
-  const iName = findCol(["Product Name", "Title", "Name", "Component_name", "Description"]);
-  const iType = 4;   // E
+const EMPTY_LOTS = { lots: [], rows: [], skipped: 0, sumMismatch: 0, shifted: [], noSku: [] };
+const LOT_COLS = { first: 8, last: 12 };     // I .. M
+const LOT_FIELDS = {
+  sku:       { at: 1,  names: ["SKU Code", "SKU"] },
+  category:  { at: 2,  names: ["Category"] },
+  product:   { at: 3,  names: ["SKU Name", "Product Name", "Title"] },
+  type:      { at: 4,  names: ["Type"] },
+  isbn:      { at: 5,  names: ["ISBN"] },
+  ordered:   { at: 13, names: ["Total Ordered Inventory"] },
+  compOrder: { at: 14, names: ["Component Level Order"] },
+  transfer:  { at: 16, names: ["Actual Inventory Transfer"] },
+  aaj:       { at: 17, names: ["Current Inventory (AAJ)"] },
+  prep:      { at: 18, names: ["Current Inventory (PrepOnline)"] },
+  available: { at: 19, names: ["Total Current Inventory"] },
+};
 
-  for (let c = LOT_FIRST_COL; c <= LOT_LAST_COL; c++) {
-    const label = (H[c] || "").trim();
-    out.lots.push({ col: c, label: label || `Lot ${c - LOT_FIRST_COL + 1}` });
+function normalizeLots(res) {
+  const out = { lots: [], rows: [], skipped: 0, sumMismatch: 0, shifted: [], noSku: [] };
+  if (!res || !Array.isArray(res.rows) || !res.rows.length) return out;
+  const H = (res.headers || []).map((h) => squash(h));
+
+  const col = {};
+  for (const [key, def] of Object.entries(LOT_FIELDS)) {
+    let idx = -1;
+    for (const n of def.names) {
+      const i = H.indexOf(squash(n));
+      if (i >= 0) { idx = i; break; }
+    }
+    if (idx < 0) idx = def.at;                       // header missing: trust position
+    else if (idx !== def.at) out.shifted.push(`${def.names[0]} (${def.at} → ${idx})`);
+    col[key] = idx;
+  }
+
+  for (let c = LOT_COLS.first; c <= LOT_COLS.last; c++) {
+    out.lots.push({ col: c, label: (res.headers[c] || "").trim() || `Lot ${c - LOT_COLS.first + 1}` });
   }
 
   const merged = {};
   for (const r of res.rows) {
-    const type = strip(r[iType]);
-    if (!/simple/i.test(type)) { out.skipped++; continue; }
-    const sku = strip(iSku >= 0 ? r[iSku] : null);
-    if (!sku) continue;
+    // only Simple rows: a bundle's quantity is already in its children
+    if (!/simple/i.test(strip(r[col.type]))) { out.skipped++; continue; }
+    const sku = strip(r[col.sku]);
+    if (!sku) {
+      /* A row with no SKU Code cannot be keyed, so its quantity is dropped -
+         but dropping it quietly would mean the page total silently disagrees
+         with the sheet. Record it so the shortfall can be named on screen. */
+      out.noSku.push({
+        product: strip(r[col.product]),
+        ordered: num(r[col.ordered]),
+      });
+      continue;
+    }
     const e = merged[sku] || (merged[sku] = {
       sku,
-      product: strip(iName >= 0 ? r[iName] : null),
-      qty: {},
-      inbound: 0,
+      product: strip(r[col.product]),
+      category: strip(r[col.category]) || "Uncategorized",
+      isbn: strip(r[col.isbn]),
+      qty: {}, inbound: 0, ordered: 0,
+      compOrder: 0, transfer: 0, aaj: 0, prep: 0, available: 0,
     });
-    if (!e.product && iName >= 0) e.product = strip(r[iName]);
     for (const l of out.lots) {
       const v = num(r[l.col]);
       if (!v) continue;
       e.qty[l.label] = (e.qty[l.label] || 0) + v;
       e.inbound += v;
     }
+    e.ordered += num(r[col.ordered]);
+    e.compOrder += num(r[col.compOrder]);
+    e.transfer += num(r[col.transfer]);
+    e.aaj += num(r[col.aaj]);
+    e.prep += num(r[col.prep]);
+    e.available += num(r[col.available]);
   }
-  out.rows = Object.keys(merged).map((k) => merged[k]);
-  // lots nobody has put anything into yet would render as dead columns
+
+  out.rows = Object.values(merged).map((e) => {
+    // the sheet totals the lots itself; disagreeing with it is worth reporting
+    if (e.ordered && e.ordered !== e.inbound) out.sumMismatch++;
+    e.moved = e.ordered - e.available;
+    return e;
+  });
   out.lots = out.lots.filter((l) => out.rows.some((r) => r.qty[l.label]));
   return out;
 }
@@ -1053,8 +1088,8 @@ export async function buildPayload() {
     lotResult: getLotSheetId()
       ? fetchTabPositional(TABS.lots[0], getLotSheetId())
           .then((r) => ({ data: normalizeLots(r), error: null }))
-          .catch((e) => ({ data: { lots: [], rows: [], skipped: 0 }, error: e.message }))
-      : Promise.resolve({ data: { lots: [], rows: [], skipped: 0 }, error: null }),
+          .catch((e) => ({ data: EMPTY_LOTS, error: e.message }))
+      : Promise.resolve({ data: EMPTY_LOTS, error: null }),
   });
 
   const now = new Date();
@@ -1103,6 +1138,9 @@ export async function buildPayload() {
     lots: lotResult.data.lots,
     lotRows: lotResult.data.rows,
     lotSkipped: lotResult.data.skipped,
+    lotSumMismatch: lotResult.data.sumMismatch,
+    lotShifted: lotResult.data.shifted,
+    lotNoSku: lotResult.data.noSku,
     lotError: lotResult.error,
     lotConfigured: Boolean(getLotSheetId()),
     pmOrderCount: Object.keys(pmOrders).length,
