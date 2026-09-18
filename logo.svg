@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 448" role="img" aria-label="PrepMarket">
+  <!--
+    The PrepMarket mark, drawn rather than embedded as a bitmap: a favicon is
+    asked for at 16, 32, 48 and 180px, and a vector stays sharp at all of them
+    from one file.
+
+    Geometry mirrors the supplied artwork: bowl centred (228,186) r140 with an
+    r52 counter, stem from x88 to the counter's left edge so the two meet
+    without overlapping. The two-tone split is a clip, so the ring is one shape
+    painted twice rather than two shapes that could drift apart.
+  -->
+  <defs>
+    <clipPath id="l"><path d="M0 0 H200 C185 120 215 250 255 448 H0 Z"/></clipPath>
+    <clipPath id="r"><path d="M200 0 H448 V448 H255 C215 250 185 120 200 0 Z"/></clipPath>
+  </defs>
+
+  <rect x="5" y="5" width="438" height="438" rx="40" fill="#4A1178"
+        stroke="#DEDEE6" stroke-width="7"/>
+
+  <!-- ring: outer circle minus counter, via even-odd -->
+  <g>
+    <path clip-path="url(#l)" fill-rule="evenodd" fill="#EF0A46"
+          d="M228 46a140 140 0 1 1 0 280 140 140 0 0 1 0-280Z
+             M228 134a52 52 0 1 0 0 104 52 52 0 0 0 0-104Z"/>
+    <path clip-path="url(#r)" fill-rule="evenodd" fill="#FF5C6E"
+          d="M228 46a140 140 0 1 1 0 280 140 140 0 0 1 0-280Z
+             M228 134a52 52 0 1 0 0 104 52 52 0 0 0 0-104Z"/>
+  </g>
+
+  <!-- stem, rounded foot; right edge meets the counter so no sliver overlaps -->
+  <path fill="#EF0A46" d="M88 150 H176 V354 a44 44 0 0 1-88 0 Z"/>
+</svg>

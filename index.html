@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PrepMarket Orders Intelligence Hub</title>
+<!-- SVG first for browsers that take it; the inline fallback keeps the tab from
+     showing a blank page icon if the file is ever missed by a deploy -->
+<link rel="icon" type="image/svg+xml" href="logo.svg">
+<link rel="apple-touch-icon" href="logo.svg">
+<link rel="mask-icon" href="logo.svg" color="#4A1178">
+<meta name="theme-color" content="#4A1178">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -47,8 +53,9 @@
   header{padding:18px 20px 13px;border-bottom:1px solid var(--line)}
   header .wrap{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
   .brand{display:flex;align-items:center;gap:12px}
-  .logo{width:40px;height:40px;border-radius:11px;display:grid;place-items:center;font-weight:800;font-size:17px;
-    background:linear-gradient(135deg,var(--violet),var(--cyan));color:#fff;box-shadow:0 0 22px var(--glow-violet)}
+  /* the real mark, not a lettered placeholder - same file the tab icon uses */
+  .logo{width:40px;height:40px;border-radius:11px;display:block;flex:none;
+    box-shadow:0 0 22px var(--glow-violet)}
   header h1{font-size:19px;font-weight:700;letter-spacing:-.01em}
   header h1 .grad{background:linear-gradient(90deg,var(--cyan),var(--violet));
     -webkit-background-clip:text;background-clip:text;color:transparent}
@@ -414,7 +421,7 @@
       align-items:center;gap:4px 6px}
     #fresh{margin-left:0}
     .meta-extra{display:none}          /* OMS/WMS labels are desktop-only detail */
-    .logo{width:32px;height:32px;font-size:14px;border-radius:9px}
+    .logo{width:32px;height:32px;border-radius:9px}
     #countdown{display:none}
     .hright{gap:6px}
     .btn{padding:7px 11px;font-size:12px}
@@ -470,7 +477,7 @@
 <header>
   <div class="wrap">
     <div class="brand">
-      <div class="logo">P</div>
+      <img class="logo" src="logo.svg" alt="PrepMarket" width="40" height="40">
       <div>
         <h1>PREPMARKET <span class="grad">ORDERS INTELLIGENCE HUB</span></h1>
         <div class="sub"><span class="meta-extra">preponline.in &middot; OMS: EasyEcom &middot; WMS: AajSwift &middot; </span><span id="gen">connecting&hellip;</span><span id="fresh"></span></div>
