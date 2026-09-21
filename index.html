@@ -1700,7 +1700,7 @@ function render(){
   var agingRows=DATA.aging.filter(function(r){
     /* rto/return added: a parcel coming back is closed for pendency purposes,
        and those statuses only appear now that the PrepOnline tab feeds in */
-    return !/deliver|cancel|complete|rto|return/i.test(r.status)&&
+    return !/deliver|cancel|complete|\brto\b|return/i.test(r.status)&&
       inSel('wh',r.warehouse)&&
       drillPass(r,'age')&&(!agingRefs||agingRefs[r.order]);});
   var over7=agingRows.filter(function(r){return r.age>7;});
@@ -1856,9 +1856,9 @@ function render(){
  * reported beside the funnel rather than inside it.
  */
 function orderFunnel(O){
-  var DEAD=/cancel/i, RTO=/rto|delivered to origin/i, RET=/^return/i;
-  var COURIER=/out for pickup|in transit|out for delivery|delivered|shipment created|rto|shipped|return/i;
-  var MOVING=/in transit|out for delivery|^delivered$|delivered to origin|rto/i;
+  var DEAD=/cancel/i, RTO=/\brto\b|delivered to origin/i, RET=/^return/i;
+  var COURIER=/out for pickup|in transit|out for delivery|delivered|shipment created|\brto\b|shipped|return/i;
+  var MOVING=/in transit|out for delivery|^delivered$|delivered to origin|\brto\b/i;
 
   /* one entry per order; an order's furthest-along line decides its fate */
   var ord={};
@@ -4717,7 +4717,12 @@ function tblLots(){
   }).sort(function(a,b){return b.ordered-a.ordered;});
 
   var cols=[
-    {k:'sku',label:'SKU Code'},
+    {k:'sku',label:'Old SKU Code'},
+    /* the new code is the one that matches the EANs on the orders, so it earns
+       a column rather than sitting unused in the sheet */
+    {k:'newSku',label:'New SKU Code',
+     fmt:function(v){return v?esc(v):'<span class="tone-mute">—</span>';},
+     xl:function(v){return v||'';}},
     {k:'category',label:'Category'},
     {k:'product',label:'SKU Name',fmt:function(v,r){
       var t=esc(v||'(untitled)');
@@ -4924,7 +4929,7 @@ function drawWhNote(){
   host.style.display='block';
   var changed=pm.filter(function(r){return r.stageRaw&&r.stageRaw!==r.stage;});
   var conflict=changed.filter(function(r){
-    return /cancel|return|rto/i.test(r.stageRaw)&&!/cancel|return|rto/i.test(r.stage);});
+    return /cancel|return|\brto\b/i.test(r.stageRaw)&&!/cancel|return|\brto\b/i.test(r.stage);});
   var refs={};conflict.forEach(function(r){refs[r.ref]=r.stageRaw+' → '+r.stage;});
   var keys=Object.keys(refs);
   host.className='matchnote'+(keys.length?' warn':'');
@@ -4961,7 +4966,7 @@ function tblExplorer(O){
      {k:'pay',label:'Payment'},{k:'channel',label:'Channel'},
      {k:'city',label:'City'},{k:'state',label:'State'},
      {k:'stage',label:'Status',fmt:function(v,r){
-       var t=/cancel|return|rto/i.test(v)?'<span class="tone-red">'+esc(v)+'</span>'
+       var t=/cancel|return|\brto\b/i.test(v)?'<span class="tone-red">'+esc(v)+'</span>'
          :/deliver/i.test(v)?'<span class="tone-green">'+esc(v)+'</span>'
          :/transit|pickup/i.test(v)?'<span class="tone-amber">'+esc(v)+'</span>':esc(v);
        /* show what it replaced, so an override is never invisible */

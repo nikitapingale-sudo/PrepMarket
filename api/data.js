@@ -170,29 +170,43 @@ async function fetchTabPositional(sheetName, sheetId) {
 }
 
 /**
- * Lot columns are I..M. N is NOT a lot - it is "Total Ordered Inventory", the
- * sheet's own sum of those five - so treating the stated I..N range literally
- * would have counted every unit twice.
+ * "Total Ordered Inventory" is the sheet's own sum of the lot columns, not a
+ * lot itself - counting it as one would double every unit. The lot detector
+ * below excludes it by name.
  *
- * Columns are found by HEADER first and by position only as a fallback. The
- * layout was given to me as letters, but a single inserted column would shift
- * every one of them silently, and a lot quantity landing in the wrong lot is
- * not the kind of error anyone would spot by eye.
+ * Every other field is found by HEADER first, position only as a fallback.
  */
 const EMPTY_LOTS = { lots: [], rows: [], skipped: 0, sumMismatch: 0, shifted: [], noSku: [] };
-const LOT_COLS = { first: 8, last: 12 };     // I .. M
+
+/**
+ * Lot columns are found by HEADER, not by position.
+ *
+ * They were pinned to I..M, and then a "New SKU Code" column was inserted at C
+ * and shifted every later column one place right. The table silently started
+ * counting "Inventory Order Quantity" as a lot and dropped "Mittal Lot 3" - the
+ * lot cells summed to 5,155 against an ordered total of 2,670, and 46 of 55
+ * rows tripped the mismatch flag before anyone looked.
+ *
+ * Matching on the word "Lot" survives inserts, and picks up a new lot column
+ * the moment someone adds one. The exclusions keep out the columns that carry
+ * "lot" only incidentally.
+ */
+const LOT_HEADER = /\blots?\b/i;
+const LOT_NOT = /total|order|balance|transfer|cancel|delta|current/i;
 const LOT_FIELDS = {
-  sku:       { at: 1,  names: ["SKU Code", "SKU"] },
-  category:  { at: 2,  names: ["Category"] },
-  product:   { at: 3,  names: ["SKU Name", "Product Name", "Title"] },
-  type:      { at: 4,  names: ["Type"] },
-  isbn:      { at: 5,  names: ["ISBN"] },
-  ordered:   { at: 13, names: ["Total Ordered Inventory"] },
-  compOrder: { at: 14, names: ["Component Level Order"] },
-  transfer:  { at: 16, names: ["Actual Inventory Transfer"] },
-  aaj:       { at: 17, names: ["Current Inventory (AAJ)"] },
-  prep:      { at: 18, names: ["Current Inventory (PrepOnline)"] },
-  available: { at: 19, names: ["Total Current Inventory"] },
+  // "SKU Code" became "Old SKU Code" when the new code column was added
+  sku:       { at: 1,  names: ["Old SKU Code", "SKU Code", "SKU"] },
+  newSku:    { at: 2,  names: ["New SKU Code"] },
+  category:  { at: 3,  names: ["Category"] },
+  product:   { at: 4,  names: ["SKU Name", "Product Name", "Title"] },
+  type:      { at: 5,  names: ["Type"] },
+  isbn:      { at: 6,  names: ["ISBN"] },
+  ordered:   { at: 14, names: ["Total Ordered Inventory"] },
+  compOrder: { at: 15, names: ["Component Level Order Received", "Component Level Order"] },
+  transfer:  { at: 19, names: ["Actual Inventory Transfer"] },
+  aaj:       { at: 20, names: ["Current Inventory (AAJ)"] },
+  prep:      { at: 21, names: ["Current Inventory (PrepOnline)", "Closing Balance Stock (AsOn Date)"] },
+  available: { at: 22, names: ["Total Current Inventory"] },
 };
 
 function normalizeLots(res) {
@@ -212,9 +226,10 @@ function normalizeLots(res) {
     col[key] = idx;
   }
 
-  for (let c = LOT_COLS.first; c <= LOT_COLS.last; c++) {
-    out.lots.push({ col: c, label: (res.headers[c] || "").trim() || `Lot ${c - LOT_COLS.first + 1}` });
-  }
+  (res.headers || []).forEach((h, c) => {
+    const label = String(h || "").trim();
+    if (label && LOT_HEADER.test(label) && !LOT_NOT.test(label)) out.lots.push({ col: c, label });
+  });
 
   const merged = {};
   for (const r of res.rows) {
@@ -233,6 +248,7 @@ function normalizeLots(res) {
     }
     const e = merged[sku] || (merged[sku] = {
       sku,
+      newSku: strip(r[col.newSku]),
       product: strip(r[col.product]),
       category: strip(r[col.category]) || "Uncategorized",
       isbn: strip(r[col.isbn]),
