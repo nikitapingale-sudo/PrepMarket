@@ -63,6 +63,7 @@ const TABS = {
   // Shopify export + operational columns for orders PrepOnline fulfils itself
   pmOrders: ["Prepmarket Order Data"],
   lots: ["Data"],
+  prepWh: ["PrepOnline WH"],
 };
 
 /* ---------- gviz fetch: returns [{header: value, ...}, ...] ---------- */
@@ -208,6 +209,46 @@ const LOT_FIELDS = {
   prep:      { at: 21, names: ["Current Inventory (PrepOnline)", "Closing Balance Stock (AsOn Date)"] },
   available: { at: 22, names: ["Total Current Inventory"] },
 };
+
+/**
+ * PrepOnline stock on hand, from the "PrepOnline WH" tab.
+ *
+ * The Inventory Bifurcation sheet has its own "PrepOnline Warehouse" column,
+ * but it is a stale running figure. What is actually left is "Closing Balance
+ * Stock (AsOn Date)" (AB) on this tab, after transfers out to Nuh are taken
+ * off - column X "Total Quantity" is a gross received figure, not what remains.
+ *
+ * The last row is a TOTALS row: blank SKU, every quantity column summed. It
+ * carries AB = 14, and the ten real rows also add to 14 - so summing the
+ * column blind gives 28 and double-counts the whole tab. Requiring a SKU drops
+ * it, which is also what makes the join possible at all.
+ *
+ * Keyed on this tab's "SKU" (F), which is the 8704... code - that matches the
+ * bifurcation sheet's second SKU column on all 49 rows, where the newer
+ * 9789... code matches only 40.
+ */
+function normalizePrepWh(res) {
+  const out = { rows: [], total: 0, skippedNoSku: 0 };
+  if (!res || !Array.isArray(res.rows) || !res.rows.length) return out;
+  const H = (res.headers || []).map((h) => squash(h));
+  const find = (names, at) => {
+    for (const n of names) { const i = H.indexOf(squash(n)); if (i >= 0) return i; }
+    return at;
+  };
+  const iSku = find(["SKU"], 5);
+  const iName = find(["Name", "Product Name"], 2);
+  const iNew = find(["New SKUs"], 28);
+  const iClose = find(["Closing Balance Stock (AsOn Date)", "Closing Balance Stock"], 27);
+
+  for (const r of res.rows) {
+    const sku = strip(r[iSku]);
+    if (!sku) { out.skippedNoSku++; continue; }   // totals row and blanks
+    const qty = num(r[iClose]);
+    out.rows.push({ sku, newSku: strip(r[iNew]), name: strip(r[iName]), qty });
+    out.total += qty;
+  }
+  return out;
+}
 
 function normalizeLots(res) {
   const out = { lots: [], rows: [], skipped: 0, sumMismatch: 0, shifted: [], noSku: [] };
@@ -810,31 +851,101 @@ function fillFromOrders(orders, cancellations, aging, stock, returns) {
  * unchanged. Total is taken from the sheet when present and derived from the
  * two warehouses when not, so a missing total column can't zero the page.
  */
-function normalizeInventory(raw) {
+/**
+ * Read positionally, because the bifurcation tab has THREE columns headed
+ * "SKU" (A, B and D). Keying rows by header name silently keeps only the last
+ * of them, and the one that is dropped - B, the 8704... code - is the only one
+ * that joins to the PrepOnline WH tab (49 of 49 rows, against 40 for the newer
+ * 9789... code).
+ *
+ * prepBySku supplies PrepOnline stock from "Closing Balance Stock (AsOn Date)";
+ * this tab's own PrepOnline column is a stale running figure and is ignored.
+ */
+function normalizeInventory(res, prepWh) {
   const out = [];
-  // one page's bad input must never break every other page
-  if (!Array.isArray(raw)) return out;
-  for (const o of raw) {
-    const sku = strip(pick(o, ["SKU", "sku", "Product SKU", "EAN"]));
-    if (!sku) continue;
-    const aaj = num(pick(o, ["AAJ Warehouse", "AAJ", "AajSwift Warehouse", "Aaj Warehouse"]));
-    const prep = num(pick(o, ["PrepOnline Warehouse", "PrepOnline", "Preponline Warehouse"]));
-    const totalCol = pick(o, ["Total Inventory", "Total", "Total Stock"]);
-    const available = totalCol == null || totalCol === "" ? aaj + prep : num(totalCol);
+  if (!res || !Array.isArray(res.rows)) return out;
+  const H = (res.headers || []).map((h) => squash(h));
+  const find = (names, at) => {
+    for (const n of names) { const i = H.indexOf(squash(n)); if (i >= 0) return i; }
+    return at;
+  };
+  /**
+   * Only the FIRST and LAST "SKU" columns identify the row.
+   *
+   * There are three columns headed "SKU" (A, B, D). Checked against the
+   * PrepOnline tab, which pairs SKU to product name, columns A and D name the
+   * row's own product 30 times each - and column B does so ZERO times out of
+   * 49. It is a stray list of codes sitting alongside the rows, not an
+   * alternate SKU, and joining on it attributed PrepOnline stock to entirely
+   * different books.
+   */
+  const skuCols = H.map((h, i) => (h === "sku" ? i : -1)).filter((i) => i >= 0);
+  const keyCols = skuCols.length > 2 ? [skuCols[0], skuCols[skuCols.length - 1]] : skuCols;
+  const iTitle = find(["Title", "Product Name", "Description"], 4);
+  const iAaj = find(["AAJ Warehouse", "AAJ", "Aaj Warehouse"], 5);
+  const iTotal = find(["Total Inventory", "Total", "Total Stock"], 7);
+  const nk = (v) => String(v == null ? "" : v).toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  for (const r of res.rows) {
+    const keys = [];
+    for (const i of keyCols) {
+      const k = strip(r[i]);
+      if (k && keys.indexOf(k) < 0) keys.push(k);
+    }
+    if (!keys.length) continue;
+    const totalCol = r[iTotal];
     out.push({
-      sku,
-      product: strip(pick(o, ["Title", "Product Name", "product_name", "Description"])),
-      category: strip(pick(o, ["Category", "Product Category"])) || "Uncategorized",
-      aaj,
-      prep,
-      available,
-      // kept so existing stock views keep their columns; this sheet has none
-      reserved: num(pick(o, ["Reserved"])),
-      toReceive: num(pick(o, ["To Receive", "Incoming"])),
-      damaged: num(pick(o, ["Damaged"])),
-      mrp: num(pick(o, ["MRP", "Price"])),
+      sku: keys[0], keys, altSkus: keys.slice(1),
+      prepMatched: false, prepMatch: null,
+      sheetTotal: totalCol == null || totalCol === "" ? null : num(totalCol),
+      product: strip(r[iTitle]),
+      category: "Uncategorized",
+      aaj: num(r[iAaj]),
+      prep: 0, available: 0,
+      reserved: 0, toReceive: 0, damaged: 0, mrp: 0,
     });
   }
+
+  /**
+   * Each PrepOnline line is placed on exactly one inventory row, walking the
+   * PrepOnline side so the dashboard total equals the sheet's by construction.
+   *
+   * Codes alone are not trusted: both sheets mix the 8704... and 9789...
+   * spellings, and some rows carry a SKU that does not match their own title.
+   * So a code hit is accepted only when the product names agree too; a
+   * code-only hit is kept as a last resort and counted separately, since the
+   * rows it lands on are the ones with no title to check against.
+   */
+  const byCode = new Map();
+  for (const row of out) for (const k of row.keys) if (!byCode.has(k)) byCode.set(k, row);
+  const byName = new Map();
+  for (const row of out) { const n = nk(row.product); if (n && !byName.has(n)) byName.set(n, row); }
+
+  const tiers = { nameAndCode: 0, nameOnly: 0, codeOnly: 0, unmatched: 0 };
+  const unplaced = [];
+  for (const p of (prepWh && prepWh.rows) || []) {
+    const n = nk(p.name);
+    let row = null, tier = null;
+    for (const k of [p.newSku, p.sku]) {
+      const c = k && byCode.get(k);
+      if (c && nk(c.product) === n) { row = c; tier = "nameAndCode"; break; }
+    }
+    if (!row && n && byName.has(n)) { row = byName.get(n); tier = "nameOnly"; }
+    if (!row) {
+      for (const k of [p.newSku, p.sku]) {
+        const c = k && byCode.get(k);
+        if (c) { row = c; tier = "codeOnly"; break; }
+      }
+    }
+    if (!row) { tiers.unmatched++; if (p.qty) unplaced.push({ sku: p.sku, name: p.name, qty: p.qty }); continue; }
+    tiers[tier]++;
+    row.prep += p.qty;
+    row.prepMatched = true;
+    row.prepMatch = tier;
+  }
+  for (const row of out) row.available = row.aaj + row.prep;
+  out.prepTiers = tiers;
+  out.unplacedPrep = unplaced;
   return out;
 }
 
@@ -1078,6 +1189,7 @@ export async function buildPayload() {
   const {
     ordersRaw, cancRaw, agingRaw, returnsRaw,
     clicksResult, funnel, widgetProducts, convRaw, invResult, skuNames, bundleRaw, pmRaw, lotResult,
+    prepWhResult,
   } = await allNamed({
     ordersRaw: fetchTab(TABS.orders),
     cancRaw: fetchTab(TABS.cancellations),
@@ -1089,8 +1201,15 @@ export async function buildPayload() {
     widgetProducts: loadWidgetProducts(),
     convRaw: fetchTab(TABS.conversion).catch(() => []),
     // capture the reason rather than swallowing it - the Inventory page shows it
-    invResult: fetchTabAny(TABS.inventory, getInventorySheetId(), "AAJ Warehouse")
-      .catch((e) => ({ rows: [], name: null, error: e.message })),
+    // positional: three columns share the header "SKU" and a keyed read loses two
+    invResult: fetchTabPositional(TABS.inventory[0], getInventorySheetId())
+      .then((r) => ({ res: r, error: null }))
+      .catch(() => fetchTabPositional(TABS.inventory[1], getInventorySheetId())
+        .then((r) => ({ res: r, error: null }))
+        .catch((e) => ({ res: { headers: [], rows: [] }, error: e.message }))),
+    prepWhResult: fetchTabPositional(TABS.prepWh[0], getInventorySheetId())
+      .then((r) => ({ data: normalizePrepWh(r), error: null }))
+      .catch((e) => ({ data: { bySku: {}, total: 0, rows: 0, skippedNoSku: 0 }, error: e.message })),
     skuNames: loadSkuCatalogue(),
     bundleRaw: fetchTabAny(TABS.bundles, getInventorySheetId(), "Bundle_SKU (ISBN)")
       .then((r) => r.rows).catch(() => []),
@@ -1126,9 +1245,9 @@ export async function buildPayload() {
    * of zeros in the AAJ/PrepOnline columns that looked like real stock data.
    * If the sheet cannot be read, the page says so instead.
    */
-  const stock = normalizeInventory(invResult.rows);
+  const stock = normalizeInventory(invResult.res, prepWhResult.data);
   const stockSource = "inventory-bifurcation";
-  const stockError = invResult.error ||
+  const stockError = invResult.error || prepWhResult.error ||
     (stock.length ? null : 'The "Inventory Bifurcation" tab returned no rows.');
   const returns = normalizeReturns(returnsRaw);
   const estimated = fillFromOrders(orders, cancellations, aging, stock, returns);
@@ -1158,6 +1277,16 @@ export async function buildPayload() {
     lotNoSku: lotResult.data.noSku,
     lotError: lotResult.error,
     lotConfigured: Boolean(getLotSheetId()),
+    prepWh: {
+      total: prepWhResult.data.total,
+      skus: (prepWhResult.data.rows || []).length,
+      skippedNoSku: prepWhResult.data.skippedNoSku,
+      matched: stock.filter((r) => r.prepMatched).length,
+      placed: stock.reduce((a, r) => a + r.prep, 0),
+      tiers: stock.prepTiers || {},
+      unplaced: stock.unplacedPrep || [],
+      error: prepWhResult.error,
+    },
     pmOrderCount: Object.keys(pmOrders).length,
     cancSuperseded: cancResult.superseded,
     cancReconcile: cancReconcile(orders, cancellations),

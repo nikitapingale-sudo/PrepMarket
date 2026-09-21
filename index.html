@@ -819,6 +819,8 @@
       <div class="card"><h2>Stock split by warehouse</h2><div class="chartbox sm"><canvas id="whChart"></canvas></div></div>
     </div>
 
+    <div class="matchnote" id="prepNote" style="display:none"></div>
+
     <div class="card" id="lotCard" style="display:none">
       <h2>Lot-wise inbound <span class="tag" id="lotTag"></span><span class="spacer"></span><button class="xls" data-xls="tblLots">&#8681; EXCEL</button></h2>
       <div class="matchnote" id="lotNote"></div>
@@ -1837,7 +1839,7 @@ function render(){
   tblTop5(O);
   tblSku(O);tblState(O);tblCity(O);tblChannel(O,Cc);tblCat(O);
   tblCanc(Cc);tblAging(agingRows);drawCancNote(Cc);
-  tblLots();tblBundles(O,span);tblOOS(O,span);tblStock(O,span);tblStockAll(O,span);drawMatchNote(O);
+  drawPrepNote();tblLots();tblBundles(O,span);tblOOS(O,span);tblStock(O,span);tblStockAll(O,span);drawMatchNote(O);
   tblExplorer(O);tblDaily(days,byDay);
 }
 
@@ -4210,6 +4212,36 @@ function tblCourier(O){
      drill:function(r){drillTo('courier',r.key);}});
 }
 /** Which warehouse holds the stock, and how much of the catalogue each covers. */
+/**
+ * Says where PrepOnline stock comes from, and how confidently each line was
+ * matched. The two sheets disagree about SKUs often enough that a silent join
+ * would be a guess presented as a fact.
+ */
+function drawPrepNote(){
+  var host=el('prepNote'),p=DATA.prepWh;if(!host)return;
+  if(!p){host.style.display='none';return;}
+  host.style.display='block';
+  var t=p.tiers||{};
+  var bits=[];
+  bits.push('<b>PrepOnline stock comes from the <i>PrepOnline WH</i> tab, column AB '+
+    '“Closing Balance Stock (AsOn Date)”</b> — what is left after transfers out. '+
+    'Column X “Total Quantity” is gross received ('+fmtN(1088)+' units) and is not used. '+
+    'AAJ still comes from the Inventory Bifurcation sheet.');
+  bits.push('<b>Total is '+fmtN(p.total)+' units, not 28.</b> The last row of that tab is a '+
+    'totals row — blank SKU, every quantity column summed, AB = '+fmtN(p.total)+
+    '. Adding it to the '+fmtN(t.nameAndCode+t.codeOnly)+' real rows counts the tab twice.');
+  if(t.codeOnly)
+    bits.push(fmtN(t.nameAndCode)+' lines matched on <b>both SKU and product name</b>; '+
+      fmtN(t.codeOnly)+' matched on <b>SKU alone</b>, because those rows carry no title in the '+
+      'Bifurcation sheet to check against.');
+  if((p.unplaced||[]).length)
+    bits.push('<b class="tone-amber">'+fmtN(p.unplaced.length)+' PrepOnline lines could not be '+
+      'matched</b> ('+fmtN(p.unplaced.reduce(function(a,x){return a+x.qty;},0))+' units): '+
+      esc(p.unplaced.slice(0,3).map(function(x){return x.name||x.sku;}).join(', ')));
+  host.className='matchnote'+((p.unplaced||[]).length?' warn':'');
+  host.innerHTML='&bull; '+bits.join('<br>&bull; ');
+}
+
 function tblWarehouse(){
   var S=stockNow(),wh=drillWarehouse();
   var tot=sum(S,function(r){return r.available;});
@@ -4240,9 +4272,8 @@ function tblWarehouse(){
     rows,'No inventory data.',{name:'Warehouse Bifurcation',totals:1,
      drill:function(r){drillTo('warehouse',r.key);}});
 
-  el('invSource').textContent=wh
-    ? wh+' · Inventory Bifurcation sheet'
-    : 'Inventory Bifurcation sheet';
+  el('invSource').textContent=(wh?wh+' · ':'')+
+    'AAJ from Inventory Bifurcation · PrepOnline from Closing Balance Stock';
 }
 
 /**
