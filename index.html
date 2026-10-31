@@ -75,6 +75,28 @@
     transition:all .2s;display:inline-flex;align-items:center;gap:6px}
   .btn:hover{background:rgba(34,211,238,.2);box-shadow:0 0 18px var(--glow-cyan)}
   .btn.ghost{background:rgba(120,140,190,.1);color:var(--mute);border-color:var(--line)}
+  .btn.adm{background:rgba(251,191,36,.12);color:var(--amber);border-color:rgba(251,191,36,.4)}
+  .whoami{font-size:11.5px;color:var(--mute);display:inline-flex;align-items:center;gap:6px}
+  .whoami a{color:var(--cyan);cursor:pointer;text-decoration:none}
+  .gate{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(1200px 600px at 20% 10%,rgba(124,58,237,.35),transparent 60%),
+      radial-gradient(900px 500px at 90% 90%,rgba(34,211,238,.25),transparent 60%),rgba(5,8,16,.92);
+    backdrop-filter:blur(6px);padding:18px}
+  .gate-card{width:100%;max-width:420px;background:var(--card-solid);border:1px solid var(--line2);
+    border-radius:18px;padding:28px 26px;box-shadow:0 30px 80px rgba(0,0,0,.5);display:flex;flex-direction:column;gap:12px}
+  .gate-card.wide{max-width:1000px}
+  .gate-card h2{display:flex;align-items:center;gap:8px}
+  .gate-logo{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;font:800 22px/1 'Space Grotesk',sans-serif;
+    color:#fff;background:linear-gradient(135deg,#7C3AED,#22D3EE)}
+  .gate-card h1{margin:2px 0 0;font:700 22px/1.2 'Space Grotesk','Inter',sans-serif}
+  .gate-sub{margin:0;color:var(--mute);font-size:13px}
+  .gate-card label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:600;color:var(--mute)}
+  .gate-card input,.gate-card textarea{font:inherit;font-size:14px;font-weight:400;color:var(--txt);background:rgba(120,140,190,.08);
+    border:1px solid var(--line2);border-radius:10px;padding:10px 12px;resize:vertical}
+  .gate-card input:focus,.gate-card textarea:focus{outline:none;border-color:var(--cyan)}
+  .gate-hint{font-weight:400;opacity:.8}
+  .gate-err{color:var(--red);font-size:12.5px;min-height:16px}
+  .gate-card .btn.solid{padding:11px;font-size:14px;justify-content:center}
   .btn.ghost:hover{color:var(--txt);box-shadow:none;border-color:var(--line2)}
   .btn.solid{background:linear-gradient(135deg,var(--violet),var(--cyan));color:#fff;border-color:transparent}
   .btn.solid:hover{box-shadow:0 0 20px var(--glow-violet)}
@@ -133,6 +155,7 @@
   .ms.open .ms-panel{display:block}
   .ms-search{width:100%;margin-bottom:6px;font-size:12px;padding:6px 8px}
   .ms-list{max-height:236px;overflow-y:auto}
+  #msStage .ms-list{max-height:440px}   /* status tags + flags fit without scrolling */
   .ms-list label,.ms-all{display:flex;align-items:center;gap:8px;padding:5px 7px;border-radius:7px;
     font-size:12.5px;cursor:pointer;user-select:none}
   .ms-list label:hover,.ms-all:hover{background:rgba(120,140,190,.14)}
@@ -142,6 +165,7 @@
   .ms-txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .ms-n{margin-left:auto;font-size:10.5px;color:var(--mute);font-variant-numeric:tabular-nums;flex:none}
   .ms-none{color:var(--mute);font-size:12px;padding:8px 7px;text-align:center}
+  .ms-head{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);padding:8px 7px 3px}
   .ms-foot{display:flex;gap:6px;margin-top:7px;padding-top:7px;border-top:1px solid var(--line)}
   .ms-foot button{flex:1;font-family:inherit;font-size:11.5px;font-weight:700;padding:6px;
     border-radius:7px;cursor:pointer;border:1px solid var(--line);
@@ -253,9 +277,12 @@
   .oseg:hover path{opacity:.82}
   .oseg:focus{outline:none}
   .oseg:focus path{stroke:var(--cyan);stroke-width:2.5}
-  .ofunnel .opc{font:700 20px/1 'Space Grotesk','Inter',sans-serif}
-  .ofunnel .olb{font:600 12.5px/1 var(--f)}
-  .ofunnel .ocnt{font:700 15px/1 'Space Grotesk','Inter',sans-serif}
+  .ofunnel .opc{font:600 11.5px/1 var(--f)}
+  .ofunnel .olb{font:800 13px/1 var(--f);letter-spacing:.12em}
+  .ofunnel .ocnt{font:700 19px/1 'Space Grotesk','Inter',sans-serif}
+  .ofunnel .onum{font:800 13px/1 'Space Grotesk','Inter',sans-serif}
+  .ofunnel .onote2{font:500 12px/1 var(--f);fill:var(--mute)}
+  .oseg:hover path:first-of-type{filter:brightness(1.12)}
   .ofunnel .ocap{font:700 17px/1 'Space Grotesk','Inter',sans-serif;fill:var(--amber)}
   .ofunnel .olkl{font:800 10px/1 var(--f);letter-spacing:.13em}
   .ofunnel .olkv{font:700 14px/1 'Space Grotesk','Inter',sans-serif}
@@ -473,6 +500,29 @@
 </style>
 </head>
 <body>
+<div id="gate" class="gate" style="display:none">
+  <form class="gate-card" id="gateForm" autocomplete="on">
+    <div class="gate-logo">P</div>
+    <h1>PrepMarket Orders Hub</h1>
+    <p class="gate-sub">Sign in with your work email. No password needed.</p>
+    <label>Email id<input type="email" id="gEmail" required placeholder="name@pw.live" autocomplete="email"></label>
+    <label>Purpose of using this dashboard<textarea id="gPurpose" rows="3" required maxlength="300"
+      placeholder="e.g. weekly sales review, RTO follow-up, stock planning"></textarea></label>
+    <label id="gKeyWrap" style="display:none">Admin key <span class="gate-hint">(admin only, unlocks Upload &amp; Logins)</span>
+      <input type="password" id="gKey" autocomplete="current-password" placeholder="leave blank to sign in as a viewer"></label>
+    <div class="gate-err" id="gErr"></div>
+    <button class="btn solid" type="submit" id="gGo">Enter dashboard &rarr;</button>
+  </form>
+</div>
+<div id="loginsModal" class="gate" style="display:none">
+  <div class="gate-card wide">
+    <h2 style="margin:0 0 4px">Dashboard sign-ins <span class="tag" id="loginsTag"></span>
+      <span class="spacer"></span><button class="xls" data-xls="tblLogins">&#8681; EXCEL</button>
+      <button class="btn ghost" id="loginsClose">Close</button></h2>
+    <div class="overflow" id="tblLogins" style="max-height:62vh"></div>
+  </div>
+</div>
+
 
 <header>
   <div class="wrap">
@@ -480,15 +530,19 @@
       <img class="logo" src="logo.svg" alt="PrepMarket" width="40" height="40">
       <div>
         <h1>PREPMARKET <span class="grad">ORDERS INTELLIGENCE HUB</span></h1>
-        <div class="sub"><span class="meta-extra">preponline.in &middot; OMS: EasyEcom &middot; WMS: AajSwift &middot; </span><span id="gen">connecting&hellip;</span><span id="fresh"></span></div>
+        <div class="sub"><span class="meta-extra">preponline.in &middot; Orders: Shopify &middot; WMS: AajSwift &middot; </span><span id="gen">connecting&hellip;</span><span id="fresh"></span></div>
       </div>
     </div>
     <div class="hright">
       <span class="live"><i></i>LIVE</span>
       <span id="countdown"></span>
+      <span id="whoami" class="whoami"></span>
+      <button class="btn adm" id="uploadBtn" style="display:none" title="Admin: load a new Shopify orders export for everyone">&#8679; Upload orders</button>
+      <button class="btn adm" id="loginsBtn" style="display:none" title="Admin: who has signed in and why">&#128101; Logins</button>
+      <input type="file" id="uploadFile" accept=".xlsx,.xls,.csv" style="display:none">
       <button class="btn ghost" id="themeBtn" title="Switch light / dark theme">&#9788; Theme</button>
       <button class="btn solid" id="exportAll" title="Download every table as one Excel workbook">&#8681; Export Excel</button>
-      <button class="btn" id="reload" title="Re-read the Google Sheet">
+      <button class="btn" id="reload" title="Re-read the data">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" style="vertical-align:-1px"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>
         Refresh
       </button>
@@ -525,10 +579,16 @@
     <input type="date" id="to" aria-label="To date">
     <div class="ms" id="msWh"></div>
     <div class="ms" id="msStage"></div>
-    <div class="ms" id="msShip"></div>
     <div class="ms" id="msPay"></div>
     <div class="ms" id="msState"></div>
     <div class="ms" id="msCat"></div>
+    <div class="ms" id="msCity"></div>
+    <div class="ms" id="msProd"></div>
+    <div class="ms" id="msGw"></div>
+    <div class="ms" id="msFin"></div>
+    <div class="ms" id="msCoupon"></div>
+    <div class="ms" id="msRisk"></div>
+    <div class="ms" id="msMkt"></div>
     <input type="search" id="fSearch" placeholder="Search order / SKU / product / city&hellip;" style="min-width:250px;flex:1" aria-label="Search">
     <label class="switch" title="Overlay the previous period of equal length on the trend chart">
       <input type="checkbox" id="fCompare"> Compare
@@ -654,18 +714,18 @@
 
     <div class="grid2">
       <div class="card"><h2>Cancellations by day</h2><div class="chartbox sm"><canvas id="cancTrendChart"></canvas></div></div>
-      <div class="card"><h2>Cancelled by<span class="spacer"></span><button class="xls" data-xls="tblCancBy">&#8681; EXCEL</button></h2><div class="overflow" id="tblCancBy"></div></div>
+      <div class="card"><h2>Cancellations by payment <span class="tag">Shopify records no &ldquo;cancelled by&rdquo;</span><span class="spacer"></span><button class="xls" data-xls="tblCancBy">&#8681; EXCEL</button></h2><div class="overflow" id="tblCancBy"></div></div>
     </div>
 
     <div class="card">
-      <h2>Cancellation reasons <span class="tag">Pareto &middot; bars = count, line = cumulative %</span></h2>
+      <h2>Cancellation refund status <span class="tag">Pareto &middot; bars = count, line = cumulative % &middot; from Shopify Tags</span></h2>
       <div class="chartbox sm"><canvas id="cancReasonChart"></canvas></div>
     </div>
 
     <div class="card"><h2>Pending order aging <span id="agingFlag"></span></h2><div class="chartbox sm"><canvas id="agingChart"></canvas></div></div>
 
     <div class="card">
-      <h2>Cancellation reason detail<span class="spacer"></span><button class="xls" data-xls="tblCanc">&#8681; EXCEL</button></h2>
+      <h2>Cancellation refund detail<span class="spacer"></span><button class="xls" data-xls="tblCanc">&#8681; EXCEL</button></h2>
       <div class="overflow" id="tblCanc"></div>
     </div>
 
@@ -888,7 +948,7 @@
 
 </main>
 
-<footer>Auto-refreshes every 2 minutes &middot; Data source: EasyEcom exports in Google Sheets &middot; Every table exports to Excel</footer>
+<footer>Auto-refreshes every 2 minutes &middot; Orders: Shopify export &middot; tracking, inventory &amp; conversion: Google Sheets &middot; clicks: warehouse &middot; Every table exports to Excel</footer>
 
 <script>
 /* ============================================================================
@@ -906,7 +966,16 @@ var EST={};                         /* which money figures the API had to derive
    are the same thing, and the dashboard can never be filtered down to nothing
    by accident. */
 var F={preset:'all',from:null,to:null,pay:[],state:[],cat:[],
-       stage:[],ship:[],wh:[],q:'',compare:false,trend:'daily'};
+       stage:[],wh:[],q:'',compare:false,trend:'daily'};
+/* Filters read straight from Shopify export columns: [key, host, label, Excel column, field] */
+var XF=[['city','msCity','City','Shipping City',function(r){return r.city;}],
+        ['prod','msProd','Product','Lineitem name',function(r){return r.product;}],
+        ['gw','msGw','Gateway','Payment Method',function(r){return r.gateway;}],
+        ['fin','msFin','Financial','Financial Status',function(r){return r.financial;}],
+        ['coupon','msCoupon','Coupon','Discount Code',function(r){return r.coupon;}],
+        ['risk','msRisk','Risk','Risk Level',function(r){return r.risk;}],
+        ['mkt','msMkt','Marketing','Accepts Marketing',function(r){return r.marketing;}]];
+XF.forEach(function(x){F[x[0]]=[];});
 var MS={};   /* multi-select state, keyed by filter name */
 var TOUCHED={};  /* filters the user has changed - defaults stop applying once set */
 
@@ -914,11 +983,32 @@ var TOUCHED={};  /* filters the user has changed - defaults stop applying once s
    business that actually stands. Tick them in the Order Status filter to see
    them. */
 var DEAD_STATUS=/cancel|return|\brto\b/i;
+/* Tag flags (Order Dispute, To be Refunded ...) share the Status dropdown but
+   narrow rather than widen, so they are told apart by this prefix. */
+var FLAG='\u2691 ';
+function isFlag(v){return String(v).indexOf(FLAG)===0;}
 function defaultStatusSel(){
   var m=MS.stage;if(!m)return [];
-  var keep=m.values.filter(function(v){return !DEAD_STATUS.test(v);});
+  var st=m.values.filter(function(v){return !isFlag(v);});
+  var keep=st.filter(function(v){return !DEAD_STATUS.test(v);});
   /* nothing to exclude, or everything would be excluded -> leave unfiltered */
-  return (!keep.length||keep.length===m.values.length)?[]:keep;
+  return (!keep.length||keep.length===st.length)?[]:keep;
+}
+/**
+ * Status filter, read from Shopify Tags.
+ *   statuses ticked -> the order's status tag must be one of them
+ *   flags ticked    -> the order must carry at least one of those tags
+ * Both apply together, so "Delivered" + "Order Dispute" = delivered orders
+ * with a dispute. skipStatus keeps the flags but ignores the status part
+ * (the funnel and cancellation cards need every status).
+ */
+function passStatus(r,skipStatus){
+  var sel=F.stage||[];if(!sel.length)return true;
+  var st=[],fl=[];
+  sel.forEach(function(v){if(isFlag(v))fl.push(v.slice(FLAG.length));else st.push(v);});
+  if(!skipStatus&&st.length&&st.indexOf(r.stage)<0)return false;
+  if(fl.length&&!(r.flags||[]).some(function(f){return fl.indexOf(f)>=0;}))return false;
+  return true;
 }
 
 /* ---------- small helpers ---------- */
@@ -1033,7 +1123,8 @@ el('fToggle').onclick=function(){
  */
 function syncMobileFilterSummary(){
   var parts=[],n=0;
-  [['wh','Warehouse'],['stage','Status'],['ship','Shipping'],['pay','Payment'],['state','State'],['cat','Category']]
+  [['wh','Warehouse'],['stage','Status'],['pay','Payment'],['state','State'],['cat','Category']]
+    .concat(XF.map(function(x){return [x[0],x[2]];}))
     .forEach(function(p){
       var s=F[p[0]]||[];
       if(s.length){n++;parts.push(p[1]+': '+(s.length===1?s[0]:s.length));}
@@ -1084,11 +1175,22 @@ function applyData(d){
   DATA.clicks=DATA.clicks||[];DATA.funnel=DATA.funnel||[];
   DATA.conversion=DATA.conversion||[];DATA.widgetProducts=DATA.widgetProducts||[];
   EST=DATA.estimated||{};
-  el('gen').textContent='synced '+d.generatedAt;
+  var os=d.ordersSource||{};
+  el('gen').textContent='synced '+d.generatedAt+
+    (os.file?' · orders: '+({excel:'live Excel',upload:'uploaded'}[os.mode]||'snapshot')+
+      ' saved '+(os.fileSaved||'?'):'');
+  el('gen').title=os.file?('Shopify export "'+os.file+'" saved '+os.fileSaved+
+    (os.mode==='upload'?', uploaded on the dashboard '+os.syncedAt+(os.uploadedBy?' by '+os.uploadedBy:'')
+     :os.mode==='snapshot'?', published '+os.syncedAt+' with npm run publish-orders':', read live from the Desktop')+
+    '. '+fmtN(os.orderCount)+' orders'+(os.testExcluded?', '+os.testExcluded+' test orders excluded':'')+'.'):'';
   drawFreshness();
   if(d.demo){
     showBanner('PREVIEW MODE — showing generated sample data. '+
       (d.demoReason||'The live Google Sheet was not readable.'));
+  }else if(d.ordersSource&&d.ordersSource.excelError){
+    /* local only: the live Excel failed, so the numbers are the last snapshot */
+    showBanner('Orders are from the last published snapshot ('+esc(d.ordersSource.fileSaved||'?')+
+      '), not the live Excel: '+esc(d.ordersSource.excelError));
   }else if(d.dataIssues&&d.dataIssues.skuCollisions){
     /* The sheet's SKU column is numeric and has been rounded to scientific
        notation, merging distinct products. Grouping uses EAN instead, but the
@@ -1167,9 +1269,9 @@ function withConversionSeed(d){
     .catch(function(){return d;});
 }
 
-function load(){
+function load(fresh){
   var btn=el('reload');btn.classList.add('spinning');
-  fetch(API_URL,{cache:'no-store'})
+  fetch(API_URL+(fresh===true?'?fresh='+Date.now():''),{cache:'no-store'})
     .then(function(r){return r.json().then(function(j){
       if(!r.ok||j.error)throw new Error(j.error||('API error '+r.status));return j;});})
     .then(withClickSnapshot)
@@ -1179,8 +1281,8 @@ function load(){
       btn.classList.remove('spinning');
       el('loader').innerHTML='<div class="card"><div class="empty"><span class="big">&#9888;</span>'+
         '<b>Could not load data:</b> '+esc(e.message)+'<br><br>'+
-        'Check that (1) the Google Sheet is shared as “Anyone with the link – Viewer”, and '+
-        '(2) the tab names are Orders_Raw / Cancellations_Raw / Aging_Raw / Stock_Raw.<br>'+
+        'Check that (1) the orders snapshot exists (run <b>npm run publish-orders</b>), and '+
+        '(2) the Google Sheets are shared as “Anyone with the link – Viewer”.<br>'+
         'Running locally? Use <b>npm run dev</b> — it falls back to sample data so you can still preview.</div></div>';
       el('loader').style.display='block';el('main').style.display='none';
     });
@@ -1245,9 +1347,9 @@ function normSel(key){
   if(m&&s.length&&s.length>=m.values.length)F[key]=[];
 }
 
-function buildMulti(hostId,key,label,values,counts){
+function buildMulti(hostId,key,label,values,counts,headers){
   var host=el(hostId);if(!host)return;
-  MS[key]={host:hostId,label:label,values:values,counts:counts,q:'',open:false};
+  MS[key]={host:hostId,label:label,values:values,counts:counts,headers:headers||{},q:'',open:false};
   /* drop selections that no longer exist in the refreshed data */
   F[key]=(F[key]||[]).filter(function(v){return values.indexOf(v)>=0;});
   renderMulti(key);
@@ -1272,7 +1374,7 @@ function renderMulti(key){
         '<span class="ms-n">'+m.values.length+'</span></label>'+
       '<div class="ms-list">'+
         (shown.length?shown.map(function(v){
-          return '<label><input type="checkbox" value="'+esc(v)+'"'+(sel.indexOf(v)>=0?' checked':'')+'>'+
+          return (m.headers[v]&&!q?'<div class="ms-head">'+esc(m.headers[v])+'</div>':'')+'<label><input type="checkbox" value="'+esc(v)+'"'+(sel.indexOf(v)>=0?' checked':'')+'>'+
             '<span class="ms-txt">'+esc(v)+'</span>'+
             '<span class="ms-n">'+fmtN(m.counts[v]||0)+'</span></label>';
         }).join(''):'<div class="ms-none">No match</div>')+
@@ -1350,9 +1452,12 @@ function toggleOnly(key,label){
 }
 
 function buildDimFilters(){
+  /* counts are ORDERS, not line items - a 3-book order is one order */
   function tally(f){
-    var m={};
-    DATA.orders.forEach(function(r){var v=f(r);if(v)m[v]=(m[v]||0)+1;});
+    var m={},seen={};
+    DATA.orders.forEach(function(r){
+      var v=f(r);if(!v)return;var k=v+'|'+r.ref;
+      if(seen[k])return;seen[k]=1;m[v]=(m[v]||0)+1;});
     return m;
   }
   function mk(hostId,key,label,f){
@@ -1360,11 +1465,25 @@ function buildDimFilters(){
     buildMulti(hostId,key,label,Object.keys(counts).sort(),counts);
   }
   mk('msWh','wh','Warehouse',function(r){return r.warehouse;});
-  mk('msStage','stage','Status',function(r){return r.stage;});
-  mk('msShip','ship','Shipping Status',function(r){return r.shipStatus;});
+  /* Status: the status tag in lifecycle order, then the other Tags as flags */
+  var LIFE=['Order Received','Pending (no tag)','Shipped (no tag)','In Transit','Delivered',
+            'RTO In Transit','RTO Delivered','Cancelled'];
+  var sc=tally(function(r){return r.stage;});
+  var sv=Object.keys(sc).sort(function(a,b){
+    var x=LIFE.indexOf(a),y=LIFE.indexOf(b);
+    return (x<0?99:x)-(y<0?99:y)||a.localeCompare(b);});
+  var fc={},fseen={};
+  DATA.orders.forEach(function(r){(r.flags||[]).forEach(function(f){
+    var k=f+'|'+r.ref;if(fseen[k])return;fseen[k]=1;fc[FLAG+f]=(fc[FLAG+f]||0)+1;});});
+  var fv=Object.keys(fc).sort(function(a,b){return fc[b]-fc[a];});
+  var headers={};
+  if(sv.length)headers[sv[0]]='Status tag';
+  if(fv.length)headers[fv[0]]='Tag flags \u00b7 narrow to orders carrying the tag';
+  buildMulti('msStage','stage','Status',sv.concat(fv),Object.assign(sc,fc),headers);
   mk('msPay','pay','Payment',function(r){return r.pay;});
   mk('msState','state','State',function(r){return r.state;});
   mk('msCat','cat','Category',function(r){return r.category;});
+  XF.forEach(function(x){mk(x[1],x[0],x[2],x[4]);});
 
   /* Re-apply the default on every refresh until the user picks their own, so a
      newly appearing status (e.g. "Delivered") is included rather than silently
@@ -1382,7 +1501,8 @@ el('fSearch').oninput=function(){
 };
 el('fCompare').onchange=function(){F.compare=this.checked;render();};
 el('resetF').onclick=function(){
-  F.pay=[];F.state=[];F.cat=[];F.ship=[];F.wh=[];F.q='';F.compare=false;
+  F.pay=[];F.state=[];F.cat=[];F.wh=[];F.q='';F.compare=false;
+  XF.forEach(function(x){F[x[0]]=[];});
   TOUCHED={};                       /* back to defaults, including status */
   F.stage=defaultStatusSel();
   Object.keys(MS).forEach(function(k){if(MS[k].host)renderMulti(k);});
@@ -1419,8 +1539,9 @@ function drawFreshness(){
   node.textContent=gap<=0?'data current'
     :'data through '+fmtDay(last)+' · '+gap+' day'+(gap>1?'s':'')+' behind';
   node.className=gap<=0?'ok':gap===1?'warn':'old';
-  node.title=gap<=0?'The sheet includes today.'
-    :'Newest row in the Sheet is '+last+'. Paste today’s EasyEcom export to bring it current.';
+  node.title=gap<=0?'The Shopify export includes today.'
+    :'Newest order in the Shopify export is '+last+'. Save a fresh export over Desktop\\Shopify Orders Report.xlsx'+
+     ' (and run npm run publish-orders for the live site) to bring it current.';
 }
 
 function latestDay(){
@@ -1456,8 +1577,9 @@ function drawFilterChips(){
     chips.push('<span class="fchip" title="'+esc(s.join(', '))+'">'+label+' <b>'+esc(txt)+'</b>'+
       '<button data-clear="'+key+'" title="Clear">&times;</button></span>');
   }
-  add('Warehouse','wh');add('Status','stage');add('Shipping Status','ship');
+  add('Warehouse','wh');add('Status','stage');
   add('Payment','pay');add('State','state');add('Category','cat');
+  XF.forEach(function(x){add(x[2],x[0]);});
   if(F.q)chips.push('<span class="fchip">Search <b>'+esc(F.q)+'</b>'+
     '<button data-clear="q" title="Clear">&times;</button></span>');
   el('fchips').innerHTML=chips.length
@@ -1487,12 +1609,12 @@ function inSel(key,v){
   return !s||!s.length||s.indexOf(v)>=0;
 }
 function passDims(r,skipStage){
+  for(var i=0;i<XF.length;i++)if(!inSel(XF[i][0],XF[i][4](r)))return false;
   return inSel('wh',r.warehouse)&&
-         inSel('ship',r.shipStatus)&&
          inSel('pay',r.pay)&&
          inSel('state',r.state)&&
          inSel('cat',r.category)&&
-         (skipStage||fstepActive()||inSel('stage',r.stage))&&
+         passStatus(r,skipStage||fstepActive())&&
          matchQ(r)&&drillPass(r,'order');
 }
 
@@ -1513,15 +1635,10 @@ function ordersIn(from,to){
   return DATA.orders.filter(function(r){return r.day>=from&&r.day<=to&&passDims(r);});
 }
 /**
- * Which orders are cancelled comes from Orders_Raw - the same sheet the Status
- * filter reads - and the reason / cancelled-by are joined in from
- * Cancellations_Raw, which is the only place those exist.
- *
- * This used to read Cancellations_Raw directly, and the two sheets do not hold
- * the same population: some orders are cancelled in Orders_Raw but absent from
- * the cancellation tab, and the tab still lists orders the PrepOnline sheet has
- * since shipped. The result was a card saying 43 while filtering Status =
- * Cancelled returned fewer, with nothing on screen to explain the gap.
+ * Which orders are cancelled comes from the order rows themselves - the same
+ * rows the Status filter reads (Shopify Tags) - so the card and the filter
+ * always agree. The refund status / payment mode shown in the reason and
+ * cancelled-by slots are joined in from DATA.cancellations.
  *
  * It also puts cancellations on the same date axis as everything else. The old
  * version bucketed by CANCEL date onto an ORDER-date axis, so a cancellation
@@ -1603,10 +1720,13 @@ function render(){
   var aov=nOrders?rev/nOrders:0, pAov=pOrders?pRev/pOrders:0;
   var cod=uniq(O.filter(function(r){return /cod|cash/i.test(r.pay);}),function(r){return r.ref;});
   var cancVal=sum(Cc,function(r){return r.value;});
+  /* only PrepOnline orders carry a delivery date (PM tab); the rest are known
+     to be delivered from Shopify Tags but not when, so they count on order day */
   var deliveredRows=DATA.orders.filter(function(r){
-    return r.delivered&&r.delivered>=F.from&&r.delivered<=F.to&&passDims(r);});
+    var d=r.delivered||(/^delivered$/i.test(r.stage)?r.day:null);
+    return d&&d>=F.from&&d<=F.to&&passDims(r);});
   var delivered=uniq(deliveredRows,function(r){return r.ref;});
-  var openStatuses=/pending|process|new|confirm|hold/i;
+  var openStatuses=/pending|process|new|confirm|hold|received/i;
   var pending=uniq(O.filter(function(r){return openStatuses.test(r.stage);}),function(r){return r.ref;});
   var cancRate=(O.length+Cc.length)?Cc.length/(O.length+Cc.length)*100:0;
   var fulfil=nOrders?uniq(O.filter(function(r){return /deliver|ship|dispatch|complete/i.test(r.status);}),
@@ -1657,7 +1777,7 @@ function render(){
       sub:fmtN(uniq(Cc,function(r){return r.order;}))+' orders · '+pct(cancRate)+' of lines · '+fmtK(cancVal)+' lost',
       a1:'var(--red)',a2:'var(--pink)',gl:'rgba(248,113,113,.25)',d:delta(Cc.length,PC.length,true),
       sp:sCanc,spc:cssVar('--red')},
-    {lab:'Delivered',v:delivered,f:fmtN,sub:'orders delivered in range',
+    {lab:'Delivered',v:delivered,f:fmtN,sub:'delivered · by delivery date where known, else order date',
       a1:'var(--green)',a2:'var(--green)',gl:'rgba(52,211,153,.25)',d:''},
     {lab:'Fulfilment Rate',v:fulfil,f:function(n){return n.toFixed(1)+'%';},
       sub:'shipped or delivered',a1:'var(--cyan)',a2:'var(--green)',gl:'var(--glow-cyan)',d:''},
@@ -1873,7 +1993,7 @@ function orderFunnel(O){
   var list=Object.keys(ord).map(function(k){return ord[k];});
   var any=function(o,re){return o.stages.some(function(s){return re.test(s);});};
 
-  var UNASSIGNED=/^pending$/i;
+  var UNASSIGNED=/^pending/i;
   var cancelled=list.filter(function(o){return any(o,DEAD);});
   var rto=list.filter(function(o){return any(o,RTO);});
   var returned=list.filter(function(o){return any(o,RET)&&!any(o,RTO);});
@@ -1906,7 +2026,7 @@ function orderFunnel(O){
       {key:'assigned', label:'Assigned',       rows:assigned,
        note:'picked up by the warehouse'},
       {key:'packed',   label:'Packed',         rows:packed,
-       note:'manifested and ready to hand over'},
+       note:'fulfilled in Shopify, ready to hand over'},
       {key:'dispatched',label:'Shipped',       rows:dispatched,
        note:'with the courier'},
       {key:'moving',   label:'In Transit',     rows:moving,
@@ -1934,101 +2054,71 @@ function drawOrderFunnel(O){
   var f=orderFunnel(O),tot=f.total;
   if(!tot){el('ordFunnel').innerHTML='<div class="empty">No orders in this range.</div>';
     el('ordLeaks').innerHTML='';return;}
-  /* Band heights are proportional to the counts, so the taper is the real
-     shape of the pipeline. Each stage keeps its own column, and the label sits
-     on the column's centre line - that way a thin stage like Delivered is still
-     readable instead of having its text squeezed out. */
-  var W=1180,H=470,PAD=22,CY=180;   /* CY above centre: the leak branches hang below */
-  var n=f.steps.length, colW=(W-96)/n;
-  var maxV=Math.max(1,f.steps[0].rows.length);
-  var hOf=function(v){return Math.max(10,300*(v/maxV));};
-
-  /* dark -> light, the way the shape itself reads: mass at the front */
-  var FILL=['#2F3A4C','#12496A','#2E8FC0','#74BDE2','#BBDDF2','#DDE7F0'];
-  var TEXT=['#FFFFFF','#FFFFFF','#FFFFFF','#0B2233','#0B2233','#0B2233'];
+  /* Stacked funnel: one rounded band per stage, narrowing downwards, with the
+     stage name on alternating sides so nothing has to squeeze inside a thin
+     band. The taper is a fixed shape (it reads as "a funnel" at a glance);
+     the real numbers are printed on every band and its side label. */
+  var n=f.steps.length, maxV=Math.max(1,f.steps[0].rows.length);
+  var W=1180, BH=54, GAP=9, TOP=14, H=TOP*2+n*(BH+GAP)-GAP, CX=W/2;
+  var WTOP=600, WBOT=230;
+  var widthAt=function(k){return WTOP-(WTOP-WBOT)*(k/n);};
+  var FILL=['#FBBF24','#FB923C','#F472B6','#C084FC','#818CF8','#38BDF8','#34D399'];
+  var DARK=['#B45309','#C2410C','#BE185D','#7E22CE','#4338CA','#0369A1','#047857'];
 
   var svg='<svg viewBox="0 0 '+W+' '+H+'" class="ofunnel" role="img" '+
-    'aria-label="Order fulfilment funnel" preserveAspectRatio="xMidYMid meet">';
-  var outline='';
+    'aria-label="Order fulfilment funnel" preserveAspectRatio="xMidYMid meet"><defs>';
   f.steps.forEach(function(st,i){
-    var v=st.rows.length, nv=(i<n-1)?f.steps[i+1].rows.length:v;
-    var x0=PAD+i*colW, x1=x0+colW;
-    var h0=hOf(v)/2, h1=hOf(nv)/2;
-    var cx=(x0+x1)/2;
-    /* the S-curve between stages is what gives the classic funnel silhouette;
-       a straight edge reads as a bar chart lying on its side */
-    var top='M '+x0+' '+(CY-h0)+' C '+cx+' '+(CY-h0)+' '+cx+' '+(CY-h1)+' '+x1+' '+(CY-h1);
-    var bot='L '+x1+' '+(CY+h1)+' C '+cx+' '+(CY+h1)+' '+cx+' '+(CY+h0)+' '+x0+' '+(CY+h0)+' Z';
-    var pct=maxV?v/maxV*100:0;
-    var label=esc(st.label), cnt=fmtN(v);
+    svg+='<linearGradient id="ofg'+i+'" x1="0" x2="1" y1="0" y2="0">'+
+      '<stop offset="0" stop-color="'+DARK[i%7]+'"/>'+
+      '<stop offset=".5" stop-color="'+FILL[i%7]+'"/>'+
+      '<stop offset="1" stop-color="'+DARK[i%7]+'"/></linearGradient>';
+  });
+  svg+='<filter id="ofsh" x="-10%" y="-30%" width="120%" height="160%">'+
+    '<feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#000" flood-opacity=".35"/></filter></defs>';
+
+  f.steps.forEach(function(st,i){
+    var v=st.rows.length, prev=i?f.steps[i-1].rows.length:v, drop=prev-v;
+    var y=TOP+i*(BH+GAP), wt=widthAt(i), wb=widthAt(i+1)+ (i===n-1?40:0);
+    var xl=CX-wt/2, xr=CX+wt/2, bl=CX-wb/2, br=CX+wb/2, r=14;
+    /* rounded trapezoid: straight sides, soft corners */
+    var d='M '+(xl+r)+' '+y+' L '+(xr-r)+' '+y+' Q '+xr+' '+y+' '+(xr-2)+' '+(y+r)+
+      ' L '+(br+1)+' '+(y+BH-r)+' Q '+br+' '+(y+BH)+' '+(br-r)+' '+(y+BH)+
+      ' L '+(bl+r)+' '+(y+BH)+' Q '+bl+' '+(y+BH)+' '+(bl-1)+' '+(y+BH-r)+
+      ' L '+(xl+2)+' '+(y+r)+' Q '+xl+' '+y+' '+(xl+r)+' '+y+' Z';
+    var pct=v/maxV*100, label=esc(st.label), cnt=fmtN(v);
+    var left=i%2===0, edge=left?(xl+bl)/2:(xr+br)/2, ym=y+BH/2;
+    var lx=left?262:W-262;                         /* label anchor, clear of the widest band */
+    var anchor=left?'end':'start', dot=left?lx+16:lx-16;
+    var through=i?(prev?(v/prev*100).toFixed(1):'0')+'% through':'every order in range';
     svg+='<g class="oseg" data-step="'+i+'" tabindex="0" role="button" '+
       'aria-label="'+label+': '+cnt+' orders">'+
       '<title>'+label+' — '+cnt+' orders ('+pct.toFixed(1)+'%) · '+esc(st.note)+'</title>'+
-      '<path d="'+top+' '+bot+'" fill="'+FILL[i%FILL.length]+'"/>'+
-      '<text x="'+cx+'" y="'+(CY-16)+'" text-anchor="middle" class="opc" '+
-        'fill="'+TEXT[i%TEXT.length]+'">'+pct.toFixed(0)+'%</text>'+
-      '<text x="'+cx+'" y="'+(CY+4)+'" text-anchor="middle" class="olb" '+
-        'fill="'+TEXT[i%TEXT.length]+'">'+label+'</text>'+
-      '<text x="'+cx+'" y="'+(CY+24)+'" text-anchor="middle" class="ocnt" '+
-        'fill="'+TEXT[i%TEXT.length]+'">'+cnt+'</text>'+
-      '</g>';
-    outline+=(i===0?'M '+x0+' '+(CY-h0)+' ':'')+
-      'C '+cx+' '+(CY-h0)+' '+cx+' '+(CY-h1)+' '+x1+' '+(CY-h1)+' ';
-  });
-  /* one continuous stroke over the top and bottom edges, drawn last so the
-     seams between segments do not show through it */
-  var back='';
-  for(var i=n-1;i>=0;i--){
-    var v=f.steps[i].rows.length, nv=(i<n-1)?f.steps[i+1].rows.length:v;
-    var x0=PAD+i*colW, x1=x0+colW, cx=(x0+x1)/2;
-    var h0=hOf(v)/2, h1=hOf(nv)/2;
-    back+=(i===n-1?'L '+x1+' '+(CY+h1)+' ':'')+
-      'C '+cx+' '+(CY+h1)+' '+cx+' '+(CY+h0)+' '+x0+' '+(CY+h0)+' ';
-  }
-  svg+='<path d="'+outline+back+'Z" fill="none" stroke="var(--txt)" stroke-width="2.2" '+
-    'stroke-linejoin="round" opacity=".55"/>';
-
-  /* the end cap: the number that actually matters, pulled out of the taper */
-  var last=f.steps[n-1].rows.length;
-  var ex=PAD+n*colW+36;
-  svg+='<circle cx="'+ex+'" cy="'+CY+'" r="27" fill="none" stroke="'+cssVar('--amber')+'" stroke-width="2.4"/>'+
-    '<text x="'+ex+'" y="'+(CY+6)+'" text-anchor="middle" class="ocap">'+fmtN(last)+'</text>';
-
-  /* Losses are drawn ON the funnel, branching down from the stage where they
-     happen. Kept off to the side they read as a footnote, and the whole point
-     of the chart is that the orders leaving are as important as the ones
-     carrying through. */
-  var BASE=CY+160;
-  f.leaks.forEach(function(l,li){
-    var cnt=l.rows.length;
-    var at=Math.min(n-1,Math.max(1,l.at||1));
-    var bx=PAD+at*colW;
-    var vAt=f.steps[at].rows.length;
-    var by=CY+hOf(vAt)/2;
-    var ty=BASE+li*0;                       /* one row, chips side by side */
-    var chipW=Math.max(132,18+String(l.label).length*8.6);
-    var cxChip=bx;
-    svg+='<g class="oleak-g'+(cnt?' hot':'')+'" data-leak="'+esc(l.label)+'">'+
-      '<title>'+esc(l.label)+' — '+fmtN(cnt)+' orders leave the funnel here</title>'+
-      '<path d="M '+bx+' '+by+' L '+bx+' '+(ty-16)+'" stroke="'+l.c+'" stroke-width="1.8" '+
-        'stroke-dasharray="4 4" fill="none" opacity=".9"/>'+
-      '<path d="M '+(bx-5)+' '+(ty-19)+' L '+bx+' '+(ty-11)+' L '+(bx+5)+' '+(ty-19)+' Z" fill="'+l.c+'"/>'+
-      '<rect x="'+(cxChip-chipW/2)+'" y="'+ty+'" width="'+chipW+'" height="52" rx="10" '+
-        'fill="'+l.c+'" opacity=".14" stroke="'+l.c+'" stroke-width="1.4"/>'+
-      '<text x="'+cxChip+'" y="'+(ty+21)+'" text-anchor="middle" class="olkl" fill="'+l.c+'">'+
-        esc(l.label.toUpperCase())+'</text>'+
-      '<text x="'+cxChip+'" y="'+(ty+42)+'" text-anchor="middle" class="olkv" fill="'+l.c+'">'+
-        fmtN(cnt)+'  ·  '+(maxV?(cnt/maxV*100).toFixed(1):'0')+'%</text>'+
+      '<path d="'+d+'" fill="url(#ofg'+i+')" filter="url(#ofsh)"/>'+
+      /* glossy top edge for depth */
+      '<path d="M '+(xl+r)+' '+(y+1.5)+' L '+(xr-r)+' '+(y+1.5)+'" stroke="#fff" stroke-opacity=".45" stroke-width="2" stroke-linecap="round"/>'+
+      '<circle cx="'+(CX-58)+'" cy="'+ym+'" r="17" fill="#fff" fill-opacity=".92"/>'+
+      '<text x="'+(CX-58)+'" y="'+(ym+5.5)+'" text-anchor="middle" class="onum" fill="'+DARK[i%7]+'">'+
+        String(i+1).padStart(2,'0')+'</text>'+
+      '<text x="'+(CX-30)+'" y="'+(ym-3)+'" class="ocnt" fill="#fff">'+cnt+'</text>'+
+      '<text x="'+(CX-30)+'" y="'+(ym+15)+'" class="opc" fill="#fff" fill-opacity=".9">'+pct.toFixed(0)+'% of orders</text>'+
+      /* connector + side label */
+      '<path d="M '+edge+' '+ym+' L '+dot+' '+ym+'" stroke="'+FILL[i%7]+'" stroke-width="1.6" stroke-dasharray="3 4"/>'+
+      '<circle cx="'+dot+'" cy="'+ym+'" r="5" fill="'+FILL[i%7]+'"/>'+
+      '<text x="'+lx+'" y="'+(ym-4)+'" text-anchor="'+anchor+'" class="olb" fill="'+FILL[i%7]+'">'+
+        label.toUpperCase()+'</text>'+
+      '<text x="'+lx+'" y="'+(ym+14)+'" text-anchor="'+anchor+'" class="onote2">'+
+        (i&&drop>0?'↓ '+fmtN(drop)+' lost · ':'')+through+'</text>'+
       '</g>';
   });
   svg+='</svg>';
+  var FILLR=FILL;
 
   var h='<div class="ofunnelwrap">'+svg+'</div><div class="osteps">';
   f.steps.forEach(function(st,i){
     var v=st.rows.length,prev=i?f.steps[i-1].rows.length:v,drop=prev-v;
     var rev=st.rows.reduce(function(a,o){return a+o.rev;},0);
     h+='<div class="orow" data-step="'+i+'">'+
-      '<i style="background:'+FILL[i%FILL.length]+'"></i>'+
+      '<i style="background:'+FILLR[i%FILLR.length]+'"></i>'+
       '<b>'+esc(st.label)+'</b>'+
       '<span class="onote">'+esc(st.note)+'</span>'+
       '<span class="spacer"></span>'+
@@ -2076,9 +2166,7 @@ function drawOrderFunnel(O){
       '<b>Each step is cumulative</b> — "reached at least this far" — so a delivered order '+
       'is also counted as packed and shipped. That is what makes it a funnel rather than a '+
       'status breakdown, and why the numbers can only fall.<br>'+
-      '<b>Packed</b> means the order carries a <i>Manifested At</i> stamp. '+
-      '(<i>Manifest ID</i> is filled on every order including cancelled ones, so it says nothing '+
-      'about progress and is not used.) '+
+      '<b>Packed</b> means Shopify marked the order <i>fulfilled</i> (it carries a <i>Fulfilled at</i> stamp). '+
       '<b>Cancelled, RTO and Returned are shown separately</b> because they are ways out of the '+
       'funnel, not stages within it — adding them as steps would double-count orders.<br>'+
       '<b>This card ignores the Status filter</b> (every other filter still applies). That filter '+
@@ -3282,7 +3370,7 @@ function drawInsights(s){
     var rm={};Cc.forEach(function(r){rm[r.reason]=(rm[r.reason]||0)+1;});
     var br=null,brv=-1;Object.keys(rm).forEach(function(k){if(rm[k]>brv){brv=rm[k];br=k;}});
     add('Operations','⚠',s.cancRate>8?'var(--red)':'var(--amber)',
-      'Cancellation rate is <b>'+pct(s.cancRate)+'</b>; top reason <b>'+esc(br)+'</b> ('+
+      'Cancellation rate is <b>'+pct(s.cancRate)+'</b>; most common refund status <b>'+esc(br)+'</b> ('+
       brv+' of '+Cc.length+', '+(brv/Cc.length*100).toFixed(0)+'%).');
     if(s.cancVal>0)add('Operations','\u{1F4B8}','var(--red)',
       '<b>'+fmtK(s.cancVal)+'</b> of order value was cancelled'+
@@ -3620,7 +3708,7 @@ function drawHeat(O){
     if(r.hour==null)return;any=true;
     var d=dowOf(r.day);g[d][r.hour]++;if(g[d][r.hour]>mx)mx=g[d][r.hour];});
   if(!any){el('heat').innerHTML='<div class="empty" style="grid-column:1/-1">'+
-    '<span class="big">&#128293;</span>Needs order timestamps (date + time) in Orders_Raw.</div>';return;}
+    '<span class="big">&#128293;</span>Needs order timestamps (Created at, with time) in the Shopify export.</div>';return;}
   var h='<div></div>';
   for(var x=0;x<24;x++)h+='<div class="hh">'+(x%3===0?String(x).padStart(2,'0'):'')+'</div>';
   var base=cssVar('--cyan');
@@ -3886,7 +3974,7 @@ var DRILL_DIMS={
   stage:    {lab:'Status',   order:'stage'},
   sku:      {lab:'SKU',      order:'pid', name:1},
   ref:      {lab:'Order',    order:'ref', canc:'order', age:'order'},
-  reason:   {lab:'Cancel reason', canc:'reason', scope:'Cancellations'},
+  reason:   {lab:'Refund status', canc:'reason', scope:'Cancellations'},
   src:      {lab:'Source page',   click:'src', scope:'Banner Clicks', fmt:shortUrl},
   dest:     {lab:'Destination',   click:'dest', scope:'Banner Clicks', fmt:shortUrl},
   wproduct: {lab:'Widget product', wp:'product', scope:'Funnel Report'},
@@ -4108,51 +4196,27 @@ function countTable(elmId,name,label,rows,countLabel){
 function tblPayMix(O){mixTable('tblPayMix','Payment Split','Payment',O,function(r){return r.pay;},'pay');}
 
 /**
- * Explains the cancellation count, because two cards reading two sheets is
- * exactly the kind of thing that quietly destroys trust in a dashboard.
- *
- * The KPI counts LINE ITEMS from Cancellations_Raw. Selecting Status =
- * Cancelled filters Orders_Raw. Those are different sheets and different units,
- * so they can differ for three separate reasons - and until you can see which,
- * the only available conclusion is that one of them is broken.
+ * Explains how cancellations are counted. They come from the same Shopify rows
+ * as every other card (status = Cancelled in Tags), so the KPI and the Status
+ * filter cannot disagree; what still needs saying is the unit and the source.
  */
 function drawCancNote(Cc){
   var host=el('cancNote');if(!host)return;
-  var rec=DATA.cancReconcile||{missingFromCancTab:[],notCancelledInOrders:[]};
-  var sup=(DATA.cancellations||[]).filter(function(c){return c.superseded;});
+  if(!Cc.length){host.style.display='none';return;}
   var lines=Cc.length, orders=uniq(Cc,function(r){return r.order;});
-  var bits=[];
-  if(lines!==orders)
-    bits.push('This counts <b>line items</b> ('+fmtN(lines)+') across <b>'+fmtN(orders)+
-      ' orders</b> — a cancelled order with three books is three lines. The funnel counts orders.');
-  if(rec.missingFromCancTab&&rec.missingFromCancTab.length)
-    bits.push('<b>'+fmtN(rec.missingFromCancTab.length)+' order'+
-      (rec.missingFromCancTab.length>1?'s are':' is')+' cancelled in Orders_Raw but missing from '+
-      'Cancellations_Raw</b> ('+esc(rec.missingFromCancTab.slice(0,4).join(', '))+
-      ') — counted here, but showing <i>Not given</i> as the reason.');
-  if(sup.length)
-    bits.push('<b>'+fmtN(sup.length)+'</b> cancellation'+(sup.length>1?'s were':' was')+
-      ' retired because the PrepOnline sheet shows the parcel moved: '+
-      esc(sup.map(function(c){return c.order+' → '+c.superseded;}).join(', '))+
-      '. They are no longer counted anywhere.');
-  if(rec.notCancelledInOrders&&rec.notCancelledInOrders.length)
-    bits.push('<b>'+fmtN(rec.notCancelledInOrders.length)+' order'+
-      (rec.notCancelledInOrders.length>1?'s are':' is')+' listed in Cancellations_Raw but no longer '+
-      'cancelled in Orders_Raw</b> ('+esc(rec.notCancelledInOrders.slice(0,4).join(', '))+
-      ') — not counted, because Orders_Raw is the authority on status.');
-  if(!bits.length){host.style.display='none';return;}
   host.style.display='block';
-  host.className='matchnote'+((rec.missingFromCancTab||[]).length||
-    (rec.notCancelledInOrders||[]).length?' warn':'');
-  host.innerHTML='<b>How cancellations are counted.</b> Which orders count comes from '+
-    '<b>Orders_Raw</b> — the same sheet the Status filter reads, so the two always agree. '+
-    'Reasons are joined in from <b>Cancellations_Raw</b>.<br>&bull; '+
-    bits.join('<br>&bull; ');
+  host.className='matchnote';
+  host.innerHTML='<b>How cancellations are counted.</b> An order is cancelled when its Shopify '+
+    '<b>Tags</b> say so (<i>Cancelled at</i> is also stamped on RTO orders, so it is not used). '+
+    (lines!==orders?'This counts <b>line items</b> ('+fmtN(lines)+') across <b>'+fmtN(orders)+
+      ' orders</b>; the funnel counts orders. ':'')+
+    'Shopify records no cancel reason or who cancelled, so the cards show the <b>refund status</b> '+
+    '(from Tags) and the <b>payment mode</b> instead.';
 }
 
 function tblCancBy(Cc){
   var m={};Cc.forEach(function(r){m[r.by]=(m[r.by]||0)+1;});
-  countTable('tblCancBy','Cancelled By','Cancelled By',
+  countTable('tblCancBy','Cancellations by Payment','Payment',
     Object.keys(m).map(function(k){return {key:k,count:m[k]};}),'Cancellations');
 }
 /**
@@ -4386,11 +4450,11 @@ function tblCanc(Cc){
       share:Cc.length?x.count/Cc.length*100:0,by:Object.keys(x.by).join(', ')};})
     .sort(function(a,b){return b.count-a.count;});
   renderTable('tblCanc',
-    [{k:'reason',label:'Reason'},{k:'count',label:'Count',r:1,bar:1},
+    [{k:'reason',label:'Refund status'},{k:'count',label:'Count',r:1,bar:1},
      Object.assign({k:'share',label:'Share'},C_SHARE),
      Object.assign({k:'value',label:'Value Lost'},C_MONEY),
-     {k:'by',label:'Cancelled By'}],
-    rows,'No cancellations in this period — good sign.',{name:'Cancellation Reasons',
+     {k:'by',label:'Payment'}],
+    rows,'No cancellations in this period — good sign.',{name:'Cancellation Refund Status',
      drill:function(r){drillTo('reason',r.reason);}});
 }
 function tblAging(rows){
@@ -4914,9 +4978,9 @@ function drawMatchNote(O){
     (top.length?' (largest: '+esc(top.map(function(t){return t+' — '+fmtN(m.names[t])+'u';}).join(', '))+')':'')+
     '. Rows that could not be matched show <b>—</b> rather than 0, because "not known" '+
     'and "not selling" are different things.<br>'+
-    'Cause: Orders_Raw stores SKU as a <b>number</b>, so 8704617775239 arrives as 8704620000000 '+
-    'and several SKUs collapse onto the same value. '+
-    'Fix: format that column as <b>Plain Text</b> in the Sheet and re-paste, and every row here joins exactly.';
+    'Cause: the Shopify line-item SKU is not one of this inventory row&rsquo;s codes (some books use the 8704&hellip; '+
+    'code in one sheet and the 9789&hellip; code in the other), and the product titles differ too. '+
+    'Fix: give the Shopify product the same SKU as the inventory sheet.';
 }
 function tblStockAll(O,span){
   var wh=drillWarehouse();
@@ -4947,37 +5011,32 @@ function tblStockAll(O,span){
      drill:function(r){drillTo('invsku',r.sku,r.product||r.sku);}});
 }
 /**
- * Explains where each order's status came from, and flags the rows where the
- * two sheets disagree outright. An override that silently rewrites a
- * cancellation into a delivery is exactly the kind of thing that should be
- * visible rather than trusted.
+ * Explains where warehouse and status come from, and lists the orders where
+ * the PM tracking tab disagrees with Shopify Tags - Tags win, but a silent
+ * disagreement is exactly what should be visible rather than trusted.
  */
 function drawWhNote(){
   var host=el('whNote');if(!host)return;
   var all=DATA.orders||[];
-  var pm=all.filter(function(r){return r.warehouse==='PrepOnline Warehouse';});
-  if(!pm.length){host.style.display='none';return;}
+  if(!all.length){host.style.display='none';return;}
   host.style.display='block';
-  var changed=pm.filter(function(r){return r.stageRaw&&r.stageRaw!==r.stage;});
-  var conflict=changed.filter(function(r){
-    return /cancel|return|\brto\b/i.test(r.stageRaw)&&!/cancel|return|\brto\b/i.test(r.stage);});
-  var refs={};conflict.forEach(function(r){refs[r.ref]=r.stageRaw+' → '+r.stage;});
-  var keys=Object.keys(refs);
+  var nOrd=function(rs){return new Set(rs.map(function(r){return r.ref;})).size;};
+  var pm=all.filter(function(r){return r.warehouse==='PrepOnline Warehouse';});
+  var filled=all.filter(function(r){return r.stageRaw&&r.stageRaw!==r.stage;});
+  var dis=DATA.pmDisagree||{},keys=Object.keys(dis);
   host.className='matchnote'+(keys.length?' warn':'');
   host.innerHTML=
-    '<b>Warehouse:</b> an order counts as <b>PrepOnline</b> when it appears in the '+
-    '<b>Prepmarket Order Data</b> tab — '+fmtN(new Set(pm.map(function(r){return r.ref;})).size)+
-    ' orders ('+fmtN(pm.length)+' lines). Everything else is <b>AAJ</b>. '+
-    'For PrepOnline orders the tracking status, dispatch date, delivery date and logistics '+
-    'partner come from that tab, because EasyEcom stops updating once the parcel leaves. '+
-    fmtN(changed.length)+' lines were restaged this way.'+
+    '<b>Source:</b> every order line comes from the <b>Shopify orders export</b>. '+
+    '<b>Status</b> and <b>warehouse</b> are read from its Tags (AAJ-01 &rarr; AAJ, Prep-02 &rarr; PrepOnline): '+
+    fmtN(nOrd(pm))+' PrepOnline orders, '+fmtN(nOrd(all)-nOrd(pm))+' AAJ. '+
+    'The <b>Prepmarket Order Data</b> tab adds courier, AWB and dispatch / delivery dates for '+
+    fmtN(DATA.pmTouched||0)+' lines'+
+    (filled.length?', and supplied the status for '+fmtN(filled.length)+' lines whose Tags had none':'')+'.'+
     (keys.length
-      ? '<br><b>'+keys.length+' order'+(keys.length>1?'s':'')+' disagree between the two sheets</b> — '+
-        'EasyEcom marked them dead, the PrepOnline sheet shows them live: '+
-        esc(keys.map(function(k){return k+' ('+refs[k]+')';}).join(', '))+
-        '. The tab wins, so they now count as live revenue. Worth confirming.'
-      : '')+
-    '<br>Where the tab has no tracking status yet, the EasyEcom status is kept rather than blanked.';
+      ? '<br><b>'+keys.length+' order'+(keys.length>1?'s':'')+' disagree between Shopify and the PM tab</b> — '+
+        esc(keys.map(function(k){return k+' ('+dis[k]+')';}).join(', '))+
+        '. Shopify Tags are used; worth correcting whichever is wrong.'
+      : '');
 }
 
 function tblExplorer(O){
@@ -5002,8 +5061,8 @@ function tblExplorer(O){
          :/transit|pickup/i.test(v)?'<span class="tone-amber">'+esc(v)+'</span>':esc(v);
        /* show what it replaced, so an override is never invisible */
        return (r.stageRaw&&r.stageRaw!==v)
-         ? t+' <span class="tone-mute" title="EasyEcom said '+esc(r.stageRaw)+
-           '; the PrepOnline sheet is newer">(was '+esc(r.stageRaw)+')</span>' : t;}},
+         ? t+' <span class="tone-mute" title="Shopify Tags had no status ('+esc(r.stageRaw)+
+           '); filled from the Prepmarket Order Data tab">(was '+esc(r.stageRaw)+')</span>' : t;}},
      {k:'status',label:'Order Status'},
      {k:'delivered',label:'Delivered',fmt:function(v){return fmtDay(v);},xl:function(v){return v||'';}}],
     O,'No line items match these filters.',
@@ -5105,12 +5164,14 @@ el('exportAll').onclick=function(){
     ['Data synced at',DATA?DATA.generatedAt:''],
     ['Date range',F.from+'  to  '+F.to],
     /* filters are arrays now; empty means no filter */
-    ['Status',selTxt(F.stage)],['Shipping Status',selTxt(F.ship)],
+    ['Warehouse',selTxt(F.wh)],['Status',selTxt(F.stage)],
     ['Payment',selTxt(F.pay)],
-    ['State',selTxt(F.state)],['Category',selTxt(F.cat)],
-    ['Search',F.q||'(none)'],
-    [],['Note',DATA&&DATA.demo?'PREVIEW MODE - sample data, not live Sheet data':'Live Google Sheet data']
-  ]),'Report Info');
+    ['State',selTxt(F.state)],['Category',selTxt(F.cat)]]
+    .concat(XF.map(function(x){return [x[2],selTxt(F[x[0]])];}))
+    .concat([['Search',F.q||'(none)'],
+    [],['Note',DATA&&DATA.demo?'PREVIEW MODE - sample data, not live data':
+      'Orders: Shopify export saved '+((DATA&&DATA.ordersSource&&DATA.ordersSource.fileSaved)||'?')]
+  ])),'Report Info');
   have.forEach(function(i){
     XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(tableToAOA(TABLES[i])),
       sheetNameOf(TABLES[i].name));});
@@ -5126,7 +5187,113 @@ document.addEventListener('keydown',function(e){
   if(e.key==='t'||e.key==='T')el('themeBtn').click();
 });
 
-load();
+/* ---------- sign-in (email + purpose, no password) ----------
+ * This records who uses the dashboard; it is not access control - the data
+ * endpoint itself stays open, exactly as before. Admin rights are different:
+ * they need the admin key, which the server checks on every admin request.
+ */
+var ADMIN_EMAIL='nikita.pingale@pw.live';
+var USER=null;
+try{USER=JSON.parse(localStorage.getItem('pm_user')||'null');}catch(e){USER=null;}
+function isAdminUser(){return !!(USER&&USER.email===ADMIN_EMAIL&&USER.key);}
+function paintUser(){
+  el('whoami').innerHTML=USER?esc(USER.email)+(isAdminUser()?' <b style="color:var(--amber)">admin</b>':'')+
+    ' &middot; <a id="signOut">Sign out</a>':'';
+  if(USER)el('signOut').onclick=function(){localStorage.removeItem('pm_user');location.reload();};
+  el('uploadBtn').style.display=isAdminUser()?'':'none';
+  el('loginsBtn').style.display=isAdminUser()?'':'none';
+}
+function startAuth(){
+  if(USER&&USER.email){paintUser();load();return;}
+  el('gate').style.display='flex';
+  el('gEmail').focus();
+}
+el('gEmail').oninput=function(){
+  el('gKeyWrap').style.display=this.value.trim().toLowerCase()===ADMIN_EMAIL?'flex':'none';};
+el('gateForm').onsubmit=function(e){
+  e.preventDefault();
+  var email=el('gEmail').value.trim().toLowerCase(),purpose=el('gPurpose').value.trim(),
+      key=email===ADMIN_EMAIL?el('gKey').value:'';
+  el('gErr').textContent='';el('gGo').disabled=true;el('gGo').textContent='Signing in…';
+  function post(body){return fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body)}).then(function(r){return r.json().then(function(j){
+      if(!r.ok)throw new Error(j.error||('Error '+r.status));return j;});});}
+  /* key first, so a mistyped key is not logged as a sign-in */
+  (key?post({email:email,key:key}).catch(function(){
+      throw new Error('Admin key is wrong. Leave it blank to sign in as a viewer.');}):Promise.resolve())
+    .then(function(){return post({email:email,purpose:purpose});})
+    .then(function(){
+      USER={email:email,purpose:purpose,key:key||'',at:new Date().toISOString()};
+      localStorage.setItem('pm_user',JSON.stringify(USER));
+      el('gate').style.display='none';paintUser();load();
+    })
+    .catch(function(err){el('gErr').textContent=err.message;})
+    .then(function(){el('gGo').disabled=false;el('gGo').innerHTML='Enter dashboard &rarr;';});
+};
+
+/* ---------- admin: upload a new Shopify export for everyone ----------
+ * Parsed here in the browser; only the columns the dashboard reads are sent,
+ * so customer names, emails, phones and addresses never leave this PC.
+ */
+var UPLOAD_COLS=['Name','Created at','Tags','Fulfillment Status','Fulfilled at','Cancelled at',
+  'Shipping Method','Payment Method','Shipping City','Billing City','Shipping Province Name',
+  'Billing Province Name','Shipping Province','Subtotal','Financial Status','Discount Code',
+  'Risk Level','Accepts Marketing','Lineitem name','Lineitem quantity','Lineitem price',
+  'Lineitem compare at price','Lineitem sku','Lineitem fulfillment status'];
+el('uploadBtn').onclick=function(){el('uploadFile').value='';el('uploadFile').click();};
+el('uploadFile').onchange=function(){
+  var file=this.files[0];if(!file)return;
+  var btn=el('uploadBtn');btn.disabled=true;btn.textContent='Reading…';
+  var rd=new FileReader();
+  rd.onload=function(){
+    try{
+      var wb=XLSX.read(new Uint8Array(rd.result),{type:'array'});
+      var name=wb.SheetNames.filter(function(n){var a=wb.Sheets[n]['A1'];
+        return a&&String(a.v).trim().toLowerCase()==='name';})[0]||wb.SheetNames[0];
+      var ws=wb.Sheets[name];
+      Object.keys(ws).forEach(function(k){if(k[0]!=='!'&&ws[k]&&ws[k].t==='e')delete ws[k];});
+      var aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
+      var hdr=(aoa[0]||[]).map(function(h){return String(h==null?'':h).trim();});
+      var sq=function(x){return x.toLowerCase().replace(/[^a-z0-9]/g,'');};
+      var want=UPLOAD_COLS.map(sq),idx=[],headers=[];
+      hdr.forEach(function(h,i){if(want.indexOf(sq(h))>=0){idx.push(i);headers.push(h);}});
+      var data=aoa.slice(1).filter(function(r){return r&&r.some(function(v){return v!=null&&v!=='';});})
+        .map(function(r){return idx.map(function(i){var v=r[i];return v===undefined?null:v;});});
+      btn.textContent='Uploading '+fmtN(data.length)+' rows…';
+      fetch('/api/orders',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({email:USER.email,key:USER.key,file:file.name,
+          modified:new Date(file.lastModified).toISOString(),headers:headers,data:data})})
+        .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||('Error '+r.status));return j;});})
+        .then(function(j){
+          alert('Uploaded '+file.name+': '+fmtN(j.orders)+' orders ('+j.from+' → '+j.to+').\n'+
+            (j.warnings&&j.warnings.length?j.warnings.join('\n')+'\n':'')+
+            'Everyone sees it on their next refresh (within about 2 minutes).');
+          load(true);})
+        .catch(function(err){alert('Upload failed: '+err.message);})
+        .then(function(){btn.disabled=false;btn.innerHTML='&#8679; Upload orders';});
+    }catch(err){alert('Could not read that file: '+err.message);btn.disabled=false;btn.innerHTML='&#8679; Upload orders';}
+  };
+  rd.readAsArrayBuffer(file);
+};
+
+/* ---------- admin: sign-in log ---------- */
+el('loginsBtn').onclick=function(){
+  el('loginsModal').style.display='flex';
+  el('tblLogins').innerHTML='<div class="empty">Loading…</div>';
+  fetch('/api/login',{headers:{'x-admin-email':USER.email,'x-admin-key':USER.key},cache:'no-store'})
+    .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||('Error '+r.status));return j;});})
+    .then(function(j){
+      var rows=j.logins||[];
+      el('loginsTag').textContent=fmtN(rows.length)+' sign-ins · '+
+        fmtN(new Set(rows.map(function(r){return r.email;})).size)+' people';
+      renderTable('tblLogins',[{k:'atIST',label:'When (IST)'},{k:'email',label:'Email'},
+        {k:'purpose',label:'Purpose'}],rows,'Nobody has signed in yet.',{name:'Dashboard Sign-ins',pageSize:200});
+    })
+    .catch(function(err){el('tblLogins').innerHTML='<div class="empty">'+esc(err.message)+'</div>';});
+};
+el('loginsClose').onclick=function(){el('loginsModal').style.display='none';};
+
+startAuth();
 </script>
 </body>
 </html>

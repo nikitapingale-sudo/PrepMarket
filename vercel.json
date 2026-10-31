@@ -1,4 +1,7 @@
 {
+  "functions": {
+    "api/data.js": { "includeFiles": "api/_data/**" }
+  },
   "headers": [
     {
       "source": "/api/data",

@@ -1,0 +1,8 @@
+{
+  "name": "prepmarket-dashboard-dev",
+  "private": true,
+  "description": "Local-only tooling (not deployed): reads the Shopify Excel export. Install with `npm run setup` from the project root.",
+  "dependencies": {
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  }
+}

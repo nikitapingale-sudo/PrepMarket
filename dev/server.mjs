@@ -4,6 +4,11 @@
  * Serves index.html and implements /api/data by calling the SAME buildPayload()
  * that Vercel runs in production. No Vercel CLI or login needed.
  *
+ * Orders are read LIVE from the Shopify export on the Desktop (ORDERS_EXCEL to
+ * override). Saving the Excel clears the cache, so the next refresh shows it.
+ * If the file can't be read, the committed snapshot is used and the dashboard
+ * says why.
+ *
  * If the Google Sheet can't be read (most commonly: it is still private), the
  * server falls back to generated demo data and tags the response with
  * demo:true + demoReason, so the dashboard can show an honest banner instead of
@@ -11,7 +16,7 @@
  */
 
 import { createServer } from "node:http";
-import { readFileSync } from "node:fs";
+import { readFileSync, watchFile } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join, extname } from "node:path";
@@ -40,6 +45,19 @@ function loadEnv() {
   }
 }
 loadEnv();
+
+/* poll rather than fs.watch: Excel saves via a temp file + rename, which
+   fs.watch on Windows reports unreliably */
+import("./excel-orders.mjs").then(({ ordersExcelPath }) => {
+  const p = ordersExcelPath();
+  watchFile(p, { interval: 2000 }, (cur, prev) => {
+    if (cur.mtimeMs !== prev.mtimeMs) {
+      cache = null;
+      console.log("  [orders] Excel saved - next refresh reads it: " + p);
+    }
+  });
+}).catch(() => {});
+
 const PORT = Number(process.env.PORT) || 3000;
 const USE_DEMO = process.argv.includes("--demo");
 
@@ -64,22 +82,30 @@ async function apiData() {
     payload = demoPayload();
     payload.demoReason = "Started with --demo, so the live Sheet was not contacted.";
   } else {
+    /* imported lazily so a missing `npm run setup` (no xlsx) degrades to the
+       snapshot instead of stopping the server */
+    let ordersData = null, excelError = null;
     try {
-      payload = await buildPayload();
-      const rows =
-        payload.orders.length + payload.cancellations.length +
-        payload.aging.length + payload.stock.length;
-      if (rows === 0) {
+      const { readOrdersExcel } = await import("./excel-orders.mjs");
+      ordersData = readOrdersExcel();
+    } catch (e) {
+      excelError = /Cannot find (package|module) 'xlsx'/.test(e.message)
+        ? "Excel reader not installed - run `npm run setup` once."
+        : e.message;
+    }
+    try {
+      payload = await buildPayload({ ordersData });
+      if (excelError) payload.ordersSource.excelError = excelError;
+      if (payload.orders.length + payload.stock.length === 0) {
         payload = demoPayload();
         payload.demoReason =
-          "The Sheet was reachable but every tab came back empty. Check the tab names: " +
-          "Orders_Raw / Cancellations_Raw / Aging_Raw / Stock_Raw.";
+          "The Shopify export had no orders and the inventory sheet came back empty.";
       }
     } catch (e) {
       payload = demoPayload();
       payload.demoReason =
-        "Could not read the Google Sheet (" + (e.message || "unknown error") + "). " +
-        "Share it as “Anyone with the link – Viewer” to see your real data here.";
+        "Could not build live data (" + (excelError ? excelError + " " : "") +
+        (e.message || "unknown error") + ").";
     }
   }
 
@@ -102,6 +128,26 @@ const server = createServer(async (req, res) => {
         "Access-Control-Allow-Origin": "*",
       });
       return res.end(body);
+    }
+
+    /* the other API routes run the real Vercel handlers through a small
+       req/res shim (Vercel adds req.body, res.status() and res.json()) */
+    if (path === "/api/login" || path === "/api/orders") {
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      const raw = Buffer.concat(chunks).toString("utf8");
+      try { req.body = raw ? JSON.parse(raw) : {}; } catch { req.body = {}; }
+      req.query = Object.fromEntries(url.searchParams);
+      res.status = (code) => { res.statusCode = code; return res; };
+      res.json = (obj) => {
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.end(JSON.stringify(obj));
+        return res;
+      };
+      const mod = await import(path === "/api/login" ? "../api/login.js" : "../api/orders.js");
+      await mod.default(req, res);
+      if (path === "/api/orders" && res.statusCode === 200) cache = null;   // show the upload at once
+      return;
     }
 
     // static files, confined to the project folder

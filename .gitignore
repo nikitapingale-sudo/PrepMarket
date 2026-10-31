@@ -21,3 +21,9 @@ Thumbs.db
 # logs
 *.log
 npm-debug.log*
+
+# login log + uploads when running locally without Blob
+.local-store/
+
+.vercel
+.env*

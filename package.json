@@ -1,15 +1,21 @@
 {
   "name": "prepmarket-dashboard",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
-  "description": "PrepMarket Orders Intelligence Hub - live leadership dashboard fed by Google Sheets (EasyEcom exports)",
+  "description": "PrepMarket Orders Intelligence Hub - live leadership dashboard fed by the Shopify orders export, Google Sheets and Trino",
   "scripts": {
+    "setup": "npm --prefix dev install --no-audit --no-fund",
     "dev": "node dev/server.mjs",
     "demo": "node dev/server.mjs --demo",
-    "deploy": "node dev/deploy.mjs",
+    "sync-orders": "node dev/sync-orders.mjs",
+    "publish-orders": "node dev/sync-orders.mjs && node dev/deploy.mjs --only=api/_data/orders-snapshot.json \"Refresh Shopify orders snapshot\"",
+    "deploy": "node dev/sync-orders.mjs --soft && node dev/deploy.mjs",
     "watch": "node dev/deploy.mjs --watch",
     "sync-clicks": "node dev/sync-clicks.mjs",
     "publish-clicks": "node dev/sync-clicks.mjs && node dev/deploy.mjs --only=clicks-snapshot.json \"Refresh banner click snapshot\""
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.8.2"
   }
 }

@@ -1,48 +1,101 @@
 # PrepMarket Orders Intelligence Hub
 
-Live leadership dashboard for preponline.in. Data source: the Google Sheet where
-EasyEcom exports are pasted daily into 4 tabs:
-`Orders_Raw`, `Cancellations_Raw`, `Aging_Raw`, `Stock_Raw`.
+Live leadership dashboard for preponline.in.
+
+| Data | Source |
+|---|---|
+| **Orders** (sales, cancellations, pendency) | Shopify orders export: `Desktop\Shopify Orders Report.xlsx` |
+| Courier / AWB / dispatch & delivery dates | Google Sheet tab `Prepmarket Order Data` |
+| Conversion | Google Sheet tab `Prepmarket_Conversion` |
+| Inventory, bundles, lots | Inventory spreadsheets (`INVENTORY_SHEET_ID`, `LOT_SHEET_ID`) |
+| Banner clicks, funnel | Trino (`clicks-snapshot.json` on Vercel) |
 
 ## See it on localhost
 
 ```bash
-cp .env.example .env.local   # then put your Sheet ID in it
+cp .env.example .env.local   # then fill in the Sheet IDs
+npm run setup                # once: installs the Excel reader into dev/
 npm run dev                  # -> http://localhost:3000
 ```
 
-No Vercel CLI, no login, no dependencies to install. If the Google Sheet can't be
-read, the dashboard still loads with generated sample data and shows an amber
-PREVIEW MODE banner explaining why — so the UI is always previewable.
+Locally the orders are read **live** from the Desktop Excel. Save a new export
+over the same file and the next refresh (Refresh button, `R`, or the 2-minute
+auto-refresh) shows it. If the Excel can't be read, the last published snapshot
+is used and a banner says why.
 
 ```bash
 npm run demo         # force sample data, never contacts the Sheet
 $env:PORT=3001; npm run dev    # if port 3000 is taken (PowerShell)
 ```
 
+## Daily routine
+
+1. Export orders from Shopify (all orders, same columns) and save over
+   `Desktop\Shopify Orders Report.xlsx`. Localhost picks it up on the next refresh.
+2. To update the **live Vercel site**: `npm run publish-orders`. This writes
+   `api/_data/orders-snapshot.json` (PII-free) and pushes only that file;
+   Vercel rebuilds in about a minute. Vercel cannot read your Desktop, so this
+   step is the only way new orders reach the live site.
+3. `npm run deploy` also refreshes the snapshot before publishing code changes.
+
+Different file? Set `ORDERS_EXCEL=C:/path/file.xlsx` in `.env.local` (forward slashes).
+
+## Sign-in and admin upload
+
+- Everyone signs in with an **email id + purpose** (no password, no OTP). It
+  records who uses the dashboard; it is not access control.
+- **Admin** (`nikita.pingale@pw.live`) also enters the **admin key** on the sign-in
+  screen. That unlocks **Upload orders** (load a new Shopify export for everyone,
+  no commands needed) and **Logins** (who signed in, when and why, with Excel export).
+  The key is checked by the server on every admin request, so typing the admin
+  email alone does nothing.
+- The key lives in `ADMIN_KEY` (Vercel env vars + `.env.local`). With no key set,
+  nobody is admin.
+- Uploads and the sign-in log are stored in the private Vercel Blob store
+  `prepmarket-dashboard-data` (`BLOB_READ_WRITE_TOKEN`). Locally without that
+  token they go to `.local-store/`.
+- Whichever orders file was **saved most recently** wins: an upload, the committed
+  snapshot (`npm run publish-orders`), or the live Desktop Excel (local only).
+
+## Shopify order rules
+
+- One export row = one line item. Rows are grouped by `Name` (the order number);
+  order-level fields take the first filled value across the order's rows.
+- **Status** comes from `Tags`, in priority order: Cancelled -> RTO Delivered ->
+  RTO In Transit -> Delivered -> In Transit -> Order Received. No status tag:
+  `Shipped` if fulfilled, else `Pending`. `Cancelled at` is ignored (it is also
+  stamped on RTO orders).
+- **Status filter** is built from `Tags`: the status tag (lifecycle order, order
+  counts), then the other tags as **flags** (Order Dispute, To be Refunded,
+  Refund Initiated, Return Pending, Refunded). Ticking a flag narrows to orders
+  carrying it, so Delivered + Order Dispute = delivered orders with a dispute.
+  Cancelled / RTO are unticked by default so revenue reflects live business.
+- **Warehouse** comes from `Tags`: `AAJ-01` -> AAJ, `Prep-02` -> PrepOnline. Both or
+  neither: listed in the `Prepmarket Order Data` tab -> PrepOnline, else AAJ.
+- **Payment**: `Shipping Method` "Cash on Delivery" -> COD, else PrePaid.
+- **Revenue** per line = price x qty, scaled so an order's lines add up to its
+  `Subtotal` (coupon spread across lines; shipping excluded).
+- **Category**: Shopify has none. Known SKUs use `api/_categories.js` (seeded from
+  EasyEcom); new SKUs are classified from the title.
+- **Test orders** (tag "Test Orders") are excluded.
+- **Cancellations** = orders tagged Cancelled. Shopify has no cancel reason or
+  "cancelled by", so Operations shows the refund status (from Tags) and the
+  payment mode in those slots.
+- **Pendency** = unfulfilled, not cancelled / RTO. Age is counted to the date the
+  export was saved.
+- **Prepmarket Order Data tab** enriches only: courier, AWB, dispatch and delivery
+  dates. Its tracking status is used only when Tags have no status; any
+  disagreement is listed in the Data Explorer.
+- **No PII** reaches the snapshot or the browser: no names, emails, phones or
+  addresses; only city and state.
+
 ## Sheet access
 
-The Sheet is shared as "Anyone with the link – Viewer" and the dashboard reads it
-live. If it is ever set back to private, Google returns a login page, the API
-fails, and the local server falls back to sample data with an amber PREVIEW MODE
-banner explaining why. Fix by re-sharing:
+The Sheets are shared as "Anyone with the link – Viewer" and read live. If one is
+set back to private, Google returns a login page and that part of the dashboard
+reports the error. Fix by re-sharing:
 
 > Sheet → **Share** → General access → **"Anyone with the link"** → **Viewer**
-
-### Derived money figures
-
-Three columns the dashboard wants don't exist in the EasyEcom exports:
-
-| Missing | Where | Filled from |
-|---|---|---|
-| cancelled order value | `Cancellations_Raw` | avg unit selling price of that SKU in `Orders_Raw` |
-| backlog order value | `Aging_Raw` | same |
-| MRP for stock valuation | `Stock_Raw` | `MRP` / selling price of that SKU in `Orders_Raw` |
-
-The API flags whatever it had to derive (`estimated` in the JSON) and the KPI
-cards say "est. from SKU price" instead of presenting derived numbers as
-reported ones. Add a real value column to those tabs and the estimates switch
-off automatically.
 
 ## What's on the dashboard
 
@@ -74,8 +127,12 @@ Keyboard: `R` refresh, `/` search, `E` export, `T` toggle light/dark theme.
 ## Files
 
 - `index.html` — the whole dashboard UI (Chart.js + SheetJS from CDN)
-- `api/data.js` — Vercel serverless function; reads the Sheet, returns JSON
+- `api/data.js` — Vercel serverless function; builds the JSON the UI reads
+- `api/_shopify.js` — Shopify export -> order lines (pure, shared by API and sync)
+- `api/_categories.js` — SKU -> category seed map
+- `api/_data/orders-snapshot.json` — generated by `npm run sync-orders`; do not edit
 - `dev/server.mjs` — local preview server (`npm run dev`), not deployed
+- `dev/excel-orders.mjs`, `dev/sync-orders.mjs` — Excel reader and snapshot writer
 - `dev/demo-data.mjs` — sample-data generator for preview mode, not deployed
 - `vercel.json`, `package.json`, `.vercelignore` — config
 
@@ -91,20 +148,12 @@ vercel          # preview deploy
 vercel --prod   # production link
 ```
 
-## Daily routine
-
-Paste fresh EasyEcom exports into the Sheet's raw tabs (data rows only, below the
-headers). The dashboard auto-refreshes every 2 minutes; leaders can also press
-Refresh. Nothing to redeploy.
-
 ## Notes on the data layer
 
 - Column matching is **tolerant**: headers are compared with casing, spaces and
   punctuation stripped, with a substring fallback. `Selling Price`,
   `selling_price` and `Selling  Price` all resolve. Renaming a column in the
   sheet won't silently blank a metric.
-- Orders and cancellations are de-duplicated by suborder number, so pasting
-  overlapping date ranges never double counts.
 - All date maths runs in UTC. Building a local-midnight `Date` and reading it
   back with `toISOString()` shifts the day in any timezone ahead of UTC (in IST
   it moved every order back a day and broke the daily series) — don't reintroduce

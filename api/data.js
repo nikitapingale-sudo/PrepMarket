@@ -1,14 +1,39 @@
 /**
  * PrepMarket - Vercel serverless API
- * Reads the four raw tabs from the Google Sheet and returns normalized JSON.
  *
- * REQUIREMENT: the Google Sheet must be shared as
+ * Orders come from the Shopify orders export: read live from the Desktop Excel
+ * by the local server, and from api/_data/orders-snapshot.json (written by
+ * `npm run sync-orders`) on Vercel. Cancellations and pendency are derived from
+ * those same orders. Everything else - PM tracking tab, conversion, inventory,
+ * lots - is still read from the Google Sheets, and banner clicks from Trino.
+ *
+ * REQUIREMENT: the Google Sheets must be shared as
  *   Share > General access > "Anyone with the link" > Viewer
  * (otherwise Google returns an HTML login page instead of data).
  */
 
+import { readFileSync } from "node:fs";
 import { trinoConfigured, trinoQuery, bannerClicksSql, bannerUsersByDaySql, funnelSql,
          widgetProductSql } from "./trino.js";
+import { deriveCancellations, deriveAging } from "./_shopify.js";
+import { getJSON } from "./_store.js";
+import { UPLOAD_PATH } from "./orders.js";
+
+/**
+ * The snapshot sits under api/_data so it is bundled with the function (see
+ * includeFiles in vercel.json) but never served as a public static file.
+ */
+const SNAPSHOT_URL = new URL("./_data/orders-snapshot.json", import.meta.url);
+function readOrdersSnapshot() {
+  try {
+    return JSON.parse(readFileSync(SNAPSHOT_URL, "utf8"));
+  } catch (e) {
+    throw new Error(
+      "No Shopify orders snapshot (api/_data/orders-snapshot.json). Run `npm run sync-orders` " +
+      "on the PC that has the Excel, then `npm run deploy`. (" + (e.code || e.message) + ")"
+    );
+  }
+}
 
 /**
  * The Sheet ID is a secret in practice: the Sheet is shared "anyone with the
@@ -47,10 +72,6 @@ function getLotSheetId() {
 }
 
 const TABS = {
-  orders: "Orders_Raw",
-  cancellations: "Cancellations_Raw",
-  aging: "Aging_Raw",
-  returns: "Pending Returns report",
   clicks: "Banner_Clicks",
   conversion: "Prepmarket_Conversion",
   // The real tab name carries a trailing space. Both spellings are tried
@@ -60,7 +81,7 @@ const TABS = {
   inventory: ["Inventory Bifurcation ", "Inventory Bifurcation"],
   // trailing space is the real tab name here too - see fetchTabAny
   bundles: ["Bundle Child Mapping ", "Bundle Child Mapping"],
-  // Shopify export + operational columns for orders PrepOnline fulfils itself
+  // courier / AWB / dispatch & delivery dates for orders PrepOnline fulfils itself
   pmOrders: ["Prepmarket Order Data"],
   lots: ["Data"],
   prepWh: ["PrepOnline WH"],
@@ -443,196 +464,8 @@ function localDay(d) {
   );
 }
 
-/** Pull "HH" out of a gviz Date(...) or a "dd/mm/yyyy hh:mm" string. Null if absent. */
-function toHour(v) {
-  if (v == null || v === "") return null;
-  if (typeof v === "string") {
-    const m = v.match(/^Date\(\d+,\d+,\d+,(\d+)/);
-    if (m) return +m[1];
-    const m2 = v.match(/\s(\d{1,2}):(\d{2})/);
-    if (m2) return +m2[1];
-  }
-  return null;
-}
 
 /* ---------- normalizers ---------- */
-function normalizeOrders(raw) {
-  const seen = new Set();
-  const out = [];
-  for (const o of raw) {
-    const rawDate = pick(o, ["Order Date", "order_date", "Order Date Time", "Ordered On"]);
-    const day = toDayStr(rawDate);
-    if (!day) continue;
-    const sub = strip(pick(o, ["Suborder No", "SubOrder No.", "Suborder Number"]));
-    const ref = strip(pick(o, ["Reference Code", "Order No.", "Order Number", "order_id"]));
-    const sku = strip(pick(o, ["SKU", "sku", "Product SKU"]));
-    const key = sub || ref + "|" + sku;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    /**
-     * "Units" means saleable units, so it comes from Suborder Quantity.
-     * Item Quantity counts the individual books INSIDE a bundle - one "Physics
-     * Combo" is 1 unit sold but 6 items - so using it inflated unit counts and
-     * made units-per-order look far higher than it is. Item Quantity is kept
-     * separately as itemQty for anyone who wants the pack-out view.
-     */
-    const qty = num(pick(o, ["Suborder Quantity", "Item Quantity", "Quantity", "Qty"])) || 1;
-    const itemQty = num(pick(o, ["Item Quantity", "Quantity", "Qty"])) || qty;
-    const orderStatus = strip(pick(o, ["Order Status", "order_status", "Status"])) || "Unknown";
-    const shipStatus = strip(pick(o, ["Shipping Status"]));
-    const price = num(pick(o, ["Selling Price", "Total Amount", "Item Total", "Amount"]));
-    out.push({
-      ref,
-      sub,
-      day,
-      hour: toHour(rawDate),
-      status: orderStatus,
-      // blank means the courier has no scan yet - label it so it stays filterable
-      shipStatus: shipStatus || "Not shipped",
-      /**
-       * Single status a leader actually cares about. Once an order is Shipped,
-       * "Shipped" stops being informative - what matters is where the parcel
-       * is - so the courier's shipping status takes over. Every other order
-       * status (Assigned/Confirmed/Pending/Cancelled/Returned) is already the
-       * most meaningful description, so it passes through unchanged.
-       */
-      stage: /^shipped$/i.test(orderStatus) ? (shipStatus || "Shipped") : orderStatus,
-      qty,
-      itemQty,
-      sku,
-      ean: strip(pick(o, ["EAN"])),
-      /**
-       * Grouping key. The SKU column arrives as a NUMBER, and Google Sheets has
-       * rounded it to scientific notation (8704683638919 -> 8.70E+12), so many
-       * different products collapse onto one value. EAN is stored as text and
-       * survives intact, so it is the reliable identifier; fall back to SKU and
-       * then the product name if EAN is ever missing.
-       */
-      pid: strip(pick(o, ["EAN"])) || sku ||
-           strip(pick(o, ["Product Name", "product_name", "Item Name"])),
-      product: strip(pick(o, ["Product Name", "product_name", "Item Name"])),
-      category: strip(pick(o, ["Category", "Product Category"])) || "Uncategorized",
-      pay: strip(pick(o, ["Payment Mode", "Payment Method", "payment_mode"])) || "Unknown",
-      price,
-      city: strip(pick(o, ["Shipping City", "City", "shipping_city"])),
-      state: strip(pick(o, ["Shipping State", "State", "shipping_state"])),
-      channel: strip(pick(o, ["MP Name", "Marketplace", "Channel", "Sales Channel"])) || "Direct",
-      mrp: num(pick(o, ["MRP"])),
-      // Only ACTUAL delivery stamps. "Delivery Date" is deliberately excluded:
-      // it is ambiguous, and EasyEcom also ships "Expected Delivery Date" and
-      // "Delivery Appointment Date", which are promises, not facts.
-      delivered: toDayStr(pick(o, ["Delivered At", "delivered_at", "Delivered On"])),
-      // EasyEcom has no "Shipped At"; handover/manifest is the real dispatch stamp
-      shipped: toDayStr(
-        pick(o, ["Handover At", "Manifested At", "Shipped At", "Dispatch Date", "shipped_at"])
-      ),
-      /**
-       * Fulfilment milestones, for the order funnel.
-       *
-       * "Manifest ID" looks like the obvious packed marker and is not: it is
-       * populated on all 211 orders, including Pending and Cancelled ones, so
-       * it says nothing about progress. "Manifested At" is only stamped when
-       * the parcel is actually manifested, which is the real packed moment.
-       * Handover At exists in the export but is empty on every row.
-       */
-      packed: toDayStr(pick(o, ["Manifested At"])),
-      invoiced: toDayStr(pick(o, ["Invoice Date"])),
-      courier: strip(pick(o, ["Courier", "Carrier", "Shipping Partner"])),
-    });
-  }
-  return out;
-}
-
-function normalizeCanc(raw) {
-  const seen = new Set();
-  const out = [];
-  for (const o of raw) {
-    const day = toDayStr(pick(o, ["Cancel Date", "Cancelled Date", "cancel_date"]));
-    if (!day) continue;
-    const sub = strip(pick(o, ["SubOrder No.", "Suborder No", "Suborder Number"]));
-    const order = strip(pick(o, ["Order No.", "Order Number", "Reference Code"]));
-    const sku = strip(pick(o, ["SKU", "sku"]));
-    const key = sub || order + "|" + sku;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({
-      order,
-      day,
-      sku,
-      product: strip(pick(o, ["Product Name", "Item Name"])),
-      qty: num(pick(o, ["Quantity", "Qty", "Item Quantity"])) || 1,
-      value: num(pick(o, ["Selling Price", "Amount", "Total Amount"])),
-      by: strip(pick(o, ["Cancelled By", "Cancel By"])) || "Unknown",
-      reason: strip(pick(o, ["Cancel Reason", "Reason", "Cancellation Reason"])) || "Not given",
-      channel: strip(pick(o, ["Marketplace", "MP Name", "Channel"])) || "Direct",
-    });
-  }
-  return out;
-}
-
-function normalizeAging(raw) {
-  const out = [];
-  for (const o of raw) {
-    const order = strip(pick(o, ["order_id", "Order No.", "Order Number", "Reference Code"]));
-    if (!order) continue;
-    out.push({
-      order,
-      day: toDayStr(pick(o, ["order_date", "Order Date"])),
-      age: num(pick(o, ["order_age", "Order Age", "Aging", "Age"])),
-      status: strip(pick(o, ["order_status", "Order Status", "Status"])) || "Unknown",
-      ship: strip(pick(o, ["shipment_processing_status", "Shipment Status", "Processing Status"])),
-      product: strip(pick(o, ["product_name", "Product Name"])),
-      sku: strip(pick(o, ["SKU", "sku"])),
-      qty: num(pick(o, ["item_quantity", "Item Quantity", "Quantity"])) || 1,
-      state: strip(pick(o, ["shipping_state", "Shipping State", "State"])),
-      value: num(pick(o, ["Selling Price", "Amount", "Total Amount"])),
-    });
-  }
-  return out;
-}
-
-/** "Pending Returns report" - reverse logistics still in flight. */
-function normalizeReturns(raw) {
-  const seen = new Set();
-  const out = [];
-  for (const o of raw) {
-    const order = strip(pick(o, ["Order_Number", "Order Number", "Order No."]));
-    const itemId = strip(pick(o, ["Order_Item_ID", "Order Item ID"]));
-    const sku = strip(pick(o, ["sku", "SKU"]));
-    if (!order && !itemId) continue;
-    const key = itemId || order + "|" + sku;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    out.push({
-      order,
-      itemId,
-      // the return is dated by when it was raised, so it lands in the right
-      // reporting period regardless of when the original order was placed
-      day: toDayStr(pick(o, ["Return_Initiated_Date"])),
-      orderDay: toDayStr(pick(o, ["Order_Date"])),
-      deliveredDay: toDayStr(pick(o, ["MP_Delivered_Date"])),
-      gateDay: toDayStr(pick(o, ["Gate_Entry_Shipment_Received_Date"])),
-      sku,
-      product: strip(pick(o, ["Product_Name", "Product Name"])),
-      qty: num(pick(o, ["Return_Quantity"])) || 1,
-      status: strip(pick(o, ["Return_Status"])) || "Unknown",
-      type: strip(pick(o, ["Return_Type"])) || "Unknown",
-      reason: strip(pick(o, ["Channel_return_reason"])) || "Not given",
-      carrier: strip(pick(o, ["Reverse_Carrier_Name", "Reverse_Carrier_Aggregator"])),
-      marketplace: strip(pick(o, ["Marketplace", "Party"])) || "Direct",
-      mpStatus: strip(pick(o, ["MP_Status"])),
-      awb: strip(pick(o, ["Reverse_AWB_Number"])),
-      warehouse: strip(pick(o, ["Returned_to_warehouse"])),
-      invoice: strip(pick(o, ["Invoice_Number"])),
-      comments: strip(pick(o, ["Comments"])),
-      value: num(pick(o, ["Packet_Amount"])),
-    });
-  }
-  return out;
-}
-
 /**
  * "Banner_Clicks" - category banner click-throughs, exported from BigQuery
  * (silver_dbt_category_banner_click) and pasted in with the query's own column
@@ -984,13 +817,13 @@ async function loadSkuCatalogue() {
   }
 }
 
-/* ---------- PrepOnline-fulfilled orders ----------
+/* ---------- PrepOnline tracking tab ----------
  *
- * Orders_Raw is the EasyEcom view, which only knows what the AAJ pipeline told
- * it. Orders that PrepOnline ships itself are tracked in a separate Shopify
- * export, and for those the EasyEcom status stops updating once the parcel
- * leaves - so "Shipped" sits there forever while the courier has long since
- * delivered it. Where this tab has a fact, it wins.
+ * Shopify Tags say where an order is (Delivered / In-transit / RTO ...) and
+ * which warehouse shipped it (AAJ-01 / Prep-02), but carry no courier, AWB or
+ * dispatch / delivery dates. The "Prepmarket Order Data" tab has those for the
+ * orders PrepOnline ships itself, so it ENRICHES the Shopify rows. It only
+ * decides status where Tags have none yet.
  */
 
 /** Courier-status spellings vary by row ("In_transit", "in_transit"). */
@@ -1044,94 +877,51 @@ function normalizePmOrders(raw) {
   return byRef;
 }
 
+/** Coarse status to go with a stage the PM tab supplied. */
+function statusOfTrack(track, fallback) {
+  if (/cancel/i.test(track)) return "Cancelled";
+  if (/\brto\b|return/i.test(track)) return "Returned";
+  if (/^delivered$/i.test(track)) return "Delivered";
+  if (/transit|delivery|pickup|shipment|shipped/i.test(track)) return "Shipped";
+  return fallback;
+}
+
 /**
- * Stamps every order with its fulfilling warehouse and lets the PrepOnline
- * sheet override the shipping facts.
+ * Warehouse: the Shopify tag decides. An order tagged with both warehouses, or
+ * with none, falls back to the old rule - listed in the PM tab means
+ * PrepOnline, otherwise AAJ.
  *
- * Presence in that tab is what defines a PrepOnline order - the user's rule -
- * so the Warehouse column is only consulted for its value, never for whether
- * the order counts. A blank there still means PrepOnline.
- *
- * Only non-blank values override. The tab is partially filled (24 of 78 orders
- * carry a tracking status today), and blanking out a known EasyEcom status
- * because a newer sheet has not been updated yet would lose information rather
- * than add it.
+ * Stage: Tags win. The PM tracking status is used only for orders whose Tags
+ * carry no status yet, and those are marked (stageRaw) so the Data Explorer
+ * can show what was filled in. Disagreements are counted, not resolved
+ * silently.
  */
-/* Cancellations are keyed by order too, so the warehouse filter can reach them
-   the same way. Without this the cancellation count stayed identical under
-   both warehouses, which made the filter look broken. */
-/**
- * Cancellations get the warehouse stamp, and are retired when the PrepOnline
- * sheet contradicts them.
- *
- * Cancellations_Raw is EasyEcom's record of what was cancelled. For a handful
- * of orders the PrepOnline sheet shows the parcel was actually delivered or is
- * in transit, and the override already treats those as live orders. Leaving
- * their rows in the cancellation count made the dashboard argue with itself:
- * the KPI said 43 while filtering Status = Cancelled returned 40. Same fact,
- * two answers, depending on which card you looked at.
- *
- * They are flagged rather than deleted so the count of retired rows can be
- * shown, instead of three cancellations quietly evaporating.
- */
-function applyPmCanc(cancellations, pm) {
-  let superseded = 0;
-  for (const c of cancellations) {
-    const p = pm[c.order];
-    c.warehouse = p ? (p.warehouse || "PrepOnline Warehouse") : "AAJ Warehouse";
-    if (p && p.track && !/cancel/i.test(p.track)) { c.superseded = p.track; superseded++; }
-  }
-  return { rows: cancellations, superseded };
-}
-
-/** Orders the two cancellation sources disagree about, for an on-screen note. */
-function cancReconcile(orders, cancellations) {
-  const inTab = new Set(cancellations.filter((c) => !c.superseded).map((c) => c.order));
-  const inOrders = new Set(
-    orders.filter((o) => /^cancelled$/i.test(o.stage)).map((o) => o.ref)
-  );
-  return {
-    missingFromCancTab: [...inOrders].filter((r) => !inTab.has(r)),
-    notCancelledInOrders: [...inTab].filter((r) => !inOrders.has(r)),
-  };
-}
-
-function applyPmAging(aging, pm, orders) {
-  const stageByRef = {};
-  for (const o of orders) if (!stageByRef[o.ref]) stageByRef[o.ref] = o.stage;
-  for (const a of aging) {
-    const p = pm[a.order];
-    a.warehouse = p ? (p.warehouse || "PrepOnline Warehouse") : "AAJ Warehouse";
-    if (!p) continue;
-    a.statusRaw = a.status;
-    // the backlog must reflect where the parcel actually is, not where
-    // EasyEcom last saw it - otherwise a delivered order sits in pendency
-    if (p.track) a.status = p.track;
-    if (p.courier) a.ship = p.courier;
-    const live = stageByRef[a.order];
-    if (live) a.stage = live;
-  }
-  return aging;
-}
-
-function applyPmOverrides(orders, pm) {
+function applyPmEnrichment(orders, pm) {
   let touched = 0, restaged = 0;
+  const disagree = {};
   for (const o of orders) {
     const p = pm[o.ref];
-    if (!p) { o.warehouse = "AAJ Warehouse"; continue; }
+    if (!o.warehouse || o.warehouse === "both") {
+      o.warehouse = p ? (p.warehouse || "PrepOnline Warehouse") : "AAJ Warehouse";
+    }
+    if (!p) continue;
     touched++;
-    o.warehouse = p.warehouse || "PrepOnline Warehouse";
-    o.stageRaw = o.stage;           // kept so the override is inspectable
-    // count real changes, not applications: one line's tab status already
-    // matched EasyEcom, and reporting it as "restaged" overstates the effect
-    if (p.track) { if (p.track !== o.stage) restaged++; o.stage = p.track; }
+    if (p.track) {
+      if (!o.tagStage) {
+        if (p.track !== o.stage) { o.stageRaw = o.stage; o.stage = p.track; restaged++; }
+        o.status = statusOfTrack(p.track, o.status);
+      } else if (p.track.toLowerCase() !== o.tagStage.toLowerCase() &&
+                 !(/\brto\b/i.test(p.track) && /\brto\b/i.test(o.tagStage))) {
+        disagree[o.ref] = o.tagStage + " vs PM " + p.track;
+      }
+    }
     if (p.courier) o.courier = p.courier;
-    if (p.shipped) o.shipped = p.shipped;
+    if (p.shipped) o.shipped = p.shipped;      // real dispatch beats Shopify's fulfilment stamp
     if (p.delivered) o.delivered = p.delivered;
     if (p.edd) o.edd = p.edd;
     if (p.awb) o.awb = p.awb;
   }
-  return { touched, restaged };
+  return { touched, restaged, disagree };
 }
 
 /**
@@ -1178,8 +968,43 @@ async function allNamed(obj) {
   return Object.fromEntries(keys.map((k, i) => [k, values[i]]));
 }
 
+/**
+ * Three places an orders file can come from: the admin's upload (Blob store),
+ * the snapshot committed with the code, and - locally - the Desktop Excel.
+ * The one whose EXCEL was saved most recently wins, so neither a later deploy
+ * nor an older Desktop file can roll back a newer upload.
+ */
+let uploadCache = null;   // { at, data }
+async function readUploaded() {
+  // an upload handled by this same instance invalidates the cache at once
+  const fresh = uploadCache && uploadCache.at > (globalThis.__ordersUploadedAt || 0);
+  if (fresh && Date.now() - uploadCache.at < 60000) return uploadCache.data;
+  let data = null;
+  try { data = await getJSON(UPLOAD_PATH); } catch { data = null; }
+  uploadCache = { at: Date.now(), data };
+  return data;
+}
+async function pickOrders(live) {
+  const cands = [];
+  if (live) cands.push({ ...live, mode: "excel" });
+  const up = await readUploaded();
+  if (up && Array.isArray(up.lines) && up.lines.length) cands.push({ ...up, mode: "upload" });
+  try { cands.push({ ...readOrdersSnapshot(), mode: "snapshot" }); }
+  catch (e) { if (!cands.length) throw e; }
+  const key = (c) => String(c.sourceModified || "") + "|" + String(c.generatedAt || "");
+  cands.sort((a, b) => (key(a) < key(b) ? 1 : -1));
+  return cands[0];
+}
+
 /* ---------- handler ---------- */
-export async function buildPayload() {
+/**
+ * opts.ordersData lets the local server hand in a LIVE read of the Desktop
+ * Excel (same shape as the snapshot). Without it - always, on Vercel - the
+ * committed snapshot is used.
+ */
+export async function buildPayload(opts = {}) {
+  const ordersData = await pickOrders(opts.ordersData);
+
   /**
    * Named, not positional. A positional Promise.all list broke the whole
    * dashboard once: a source added in the middle of the array shifted every
@@ -1187,15 +1012,10 @@ export async function buildPayload() {
    * died with "raw is not iterable". Keys make the order irrelevant.
    */
   const {
-    ordersRaw, cancRaw, agingRaw, returnsRaw,
     clicksResult, funnel, widgetProducts, convRaw, invResult, skuNames, bundleRaw, pmRaw, lotResult,
     prepWhResult,
   } = await allNamed({
-    ordersRaw: fetchTab(TABS.orders),
-    cancRaw: fetchTab(TABS.cancellations),
-    agingRaw: fetchTab(TABS.aging),
     // optional sources: a missing one must not take the whole dashboard down
-    returnsRaw: fetchTab(TABS.returns).catch(() => []),
     clicksResult: loadClicks(),
     funnel: loadFunnel(),
     widgetProducts: loadWidgetProducts(),
@@ -1233,12 +1053,15 @@ export async function buildPayload() {
     hour: "2-digit", minute: "2-digit", hour12: false,
   });
 
-  const orders = normalizeOrders(ordersRaw);
+  // copies: enrichment mutates rows, and a live read may be reused by a cache
+  const orders = ordersData.lines.map((l) => ({ ...l }));
   const pmOrders = normalizePmOrders(pmRaw);
-  const pmStats = applyPmOverrides(orders, pmOrders);
-  const cancResult = applyPmCanc(normalizeCanc(cancRaw), pmOrders);
-  const cancellations = cancResult.rows;
-  const aging = applyPmAging(normalizeAging(agingRaw), pmOrders, orders);
+  const pmStats = applyPmEnrichment(orders, pmOrders);
+  // derived after enrichment so they inherit the resolved warehouse / courier
+  const cancellations = deriveCancellations(orders);
+  const asOf = String(ordersData.sourceModified || ordersData.generatedAt || "").slice(0, 10) ||
+    new Date(Date.now() + 330 * 60000).toISOString().slice(0, 10);
+  const aging = deriveAging(orders, asOf);
   /**
    * Inventory comes from the "Inventory Bifurcation" tab and nothing else.
    * There is deliberately no Stock_Raw fallback: falling back produced a page
@@ -1249,7 +1072,7 @@ export async function buildPayload() {
   const stockSource = "inventory-bifurcation";
   const stockError = invResult.error || prepWhResult.error ||
     (stock.length ? null : 'The "Inventory Bifurcation" tab returned no rows.');
-  const returns = normalizeReturns(returnsRaw);
+  const returns = [];   // the EasyEcom returns report is no longer read
   const estimated = fillFromOrders(orders, cancellations, aging, stock, returns);
 
   /* Flag the rounded-SKU problem so the dashboard can warn rather than quietly
@@ -1288,10 +1111,20 @@ export async function buildPayload() {
       error: prepWhResult.error,
     },
     pmOrderCount: Object.keys(pmOrders).length,
-    cancSuperseded: cancResult.superseded,
-    cancReconcile: cancReconcile(orders, cancellations),
     pmTouched: pmStats.touched,
     pmRestaged: pmStats.restaged,
+    pmDisagree: pmStats.disagree,
+    ordersSource: {
+      mode: ordersData.mode,
+      uploadedBy: ordersData.uploadedBy || null,
+      file: ordersData.source,
+      fileSaved: ordersData.sourceModified,
+      syncedAt: ordersData.generatedAt,
+      orderCount: ordersData.orderCount,
+      testExcluded: ordersData.testExcluded,
+      warnings: ordersData.warnings || [],
+      agingAsOf: asOf,
+    },
     clicks: clicksResult.rows,
     stockSource, stockError,
     funnel, widgetProducts,
@@ -1315,6 +1148,6 @@ export default async function handler(req, res) {
     res.status(200).json(payload);
   } catch (e) {
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.status(500).json({ error: e.message || "Failed to read the Google Sheet." });
+    res.status(500).json({ error: e.message || "Failed to build the dashboard data." });
   }
 }
